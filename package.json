@@ -1,0 +1,60 @@
+{
+  "name": "dsh-web-kit",
+  "version": "0.2.0",
+  "description": "Standalone web_search / web_fetch capability extracted from DeepSeek Harness (deepseek-harness). Cordis-free, framework-neutral tool definitions, and search providers that need no third-party API key.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "dsh-web-check": "scripts/check.mjs"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "README.md",
+    "ATTRIBUTION.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test tests/smoke.test.mjs",
+    "test:offline": "tsc -p tsconfig.json && node --test --test-name-pattern='^(?!.*real ).*' tests/smoke.test.mjs",
+    "check": "npm run build && node scripts/check.mjs",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "web-search",
+    "web-fetch",
+    "agent-tools",
+    "searxng",
+    "no-api-key"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liuda1999/dsh-web-kit.git"
+  },
+  "homepage": "https://github.com/liuda1999/dsh-web-kit#readme",
+  "bugs": {
+    "url": "https://github.com/liuda1999/dsh-web-kit/issues"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "ipaddr.js": "^2.5.0",
+    "turndown": "^7.2.4",
+    "undici": "^8.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.7.0"
+  }
+}

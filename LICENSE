@@ -1,6 +1,11 @@
 MIT License
 
-Copyright (c) 2026 刘鸿祥
+Copyright (c) 2026 dsh-web-kit contributors
+
+Portions of this software are derived from DeepSeek Harness
+(https://github.com/deepseek-ai/deepseek-harness), Copyright (c) DeepSeek AI,
+licensed under the MIT License. See ATTRIBUTION.md for the file-by-file record
+of what was derived, what was rewritten, and what is new code.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
