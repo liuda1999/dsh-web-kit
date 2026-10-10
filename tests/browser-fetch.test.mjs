@@ -16,9 +16,11 @@ import assert from 'node:assert/strict'
 
 import {
   BrowserFetchProvider,
+  BrowserPool,
   BROWSER_FETCH_PROVIDER_ID,
   DEFAULT_BROWSER_BODY_CHARS,
   isHarnessError,
+  missingPlaywrightMessage,
 } from '../dist/index.js'
 
 /** True when Playwright is actually installed. */
@@ -135,4 +137,31 @@ test('the rendered DOM is cleaned so its content survives the conversion window'
     'cleaning must strip script tags from the returned DOM',
   )
   await provider.dispose()
+})
+
+test('a missing playwright is reported in the terms of what was asked for', () => {
+  // The pool is shared by search and fetch. The install hint is identical for
+  // both, but a fetch-side failure saying "browser search requires..." sends
+  // the reader to the wrong half of the docs.
+  const fetchMsg = missingPlaywrightMessage('fetch')
+  const searchMsg = missingPlaywrightMessage('search')
+
+  assert.ok(!fetchMsg.includes('browser search'), `fetch message must not say "search": ${fetchMsg}`)
+  assert.ok(fetchMsg.includes('fetched page'), `fetch message must name the fetch path: ${fetchMsg}`)
+  assert.ok(searchMsg.includes('browser search'))
+  assert.equal(missingPlaywrightMessage(undefined), searchMsg, 'absent purpose defaults to search')
+
+  for (const msg of [fetchMsg, searchMsg]) {
+    assert.ok(msg.includes('npm install playwright'), 'the actionable hint must survive')
+    assert.ok(msg.includes('npx playwright install chromium'))
+  }
+})
+
+test('the fetch provider tells its pool it is fetching', () => {
+  const provider = new BrowserFetchProvider()
+  assert.equal(provider.browserPool.purpose, 'fetch')
+  // A shared pool keeps whatever it was built with: the caller decides.
+  const shared = new BrowserPool({ purpose: 'search' })
+  assert.equal(new BrowserFetchProvider({ pool: shared }).browserPool.purpose, 'search')
+  assert.equal(new BrowserFetchProvider({ purpose: 'search' }).browserPool.purpose, 'search')
 })

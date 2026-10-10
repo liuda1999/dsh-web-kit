@@ -90,7 +90,9 @@ export class BrowserFetchProvider implements WebFetchProvider {
     this.id = options.id ?? BROWSER_FETCH_PROVIDER_ID
     this.options = options
     this.ownsPool = options.pool === undefined
-    this.pool = options.pool ?? new Pool(options)
+    // The pool is shared with search; this one renders fetched pages, so a
+    // missing Playwright has to say so in fetch terms.
+    this.pool = options.pool ?? new Pool({ ...options, purpose: options.purpose ?? 'fetch' })
   }
 
   /**

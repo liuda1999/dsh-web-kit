@@ -559,6 +559,10 @@ The HTTP fetch provider is the upstream one, unchanged in behaviour:
 - **SSRF defence**: hostname resolves once, every answer must be a public
   unicast address (including NAT64 unwrapping), and the validated set is pinned
   into the connection so DNS cannot change between check and connect.
+  **That guarantee belongs to the HTTP provider.** Render assist cannot offer
+  it: the browser does its own DNS and follows its own redirects, so a name
+  that resolves publicly at check time can still be answered differently by the
+  time the browser dials it — see [Security notes](#security-notes).
 - Only HTTP(S); credentials in URLs are refused.
 - Same-origin redirects only, capped; cross-origin redirects are reported, not
   followed.
@@ -618,6 +622,13 @@ conversion window, leaving the model a page title.
 
 A body that came from the browser carries `rendered: true`, so an unexpectedly
 slow fetch can be explained rather than guessed at.
+
+**What render assist cannot do:** the HTTP provider pins validated addresses into
+the connection, so DNS cannot shift between the check and the connect. A browser
+resolves names itself and follows redirects itself, so that guarantee is lost
+here — the requested name is validated before launch and the landing URL again
+after navigation, but a hostile answer between the two is possible. Treat the
+browser as something that must not be able to reach your internal network.
 
 `web_fetch` converts HTML to Markdown (Turndown + GFM), strips non-visible
 elements, and refuses to convert past a nesting depth of 512 to bound
@@ -765,12 +776,21 @@ lets it correct itself on the next turn.
   browser resolves hostnames itself, so the requested URL is validated before
   launch and the URL the browser actually lands on is validated again after
   navigation — a scripted redirect is a redirect, and it gets the same check.
-  What is *not* covered: requests the page's own scripts make (an `<img>`, a
-  `fetch()` in page context) reach whatever they address without passing
-  through this validation. Blocking those means intercepting every request in
-  the page, which would break the pages this exists to read. If you need
-  rendered content from a network where that matters, run the browser somewhere
-  that cannot reach your internal addresses.
+  Three gaps remain, and none of them are fixable from inside the page:
+  1. **DNS rebinding between check and connect.** The HTTP provider pins
+     validated addresses into the connection, so the answer cannot change. A
+     browser resolves the name again when it dials, so a name that passed the
+     check can be answered with a private address. Intermediate redirects have
+     the same problem: the browser follows them before the final URL is seen.
+  2. **Requests the page's own scripts make.** An `<img>` or a `fetch()` in
+     page context reaches whatever it addresses without passing this
+     validation. Blocking those means intercepting every request, which would
+     break the pages this exists to read.
+  3. **Redirects are followed before they can be judged.** Only the landing
+     URL is re-validated; a chain that touches a private address and returns to
+     a public one is not observable from here.
+  If you need rendered content from a network where any of this matters, run
+  the browser somewhere that cannot reach your internal addresses.
 - Fetched content is **untrusted data**. Keep the trust notice in your prompt;
   the toolkit marks it, it does not neutralize it. A rendered page is more
   untrusted, not less: rendering executes the page's own JavaScript.

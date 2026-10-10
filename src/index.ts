@@ -93,6 +93,7 @@ export { stripTags, collapseWhitespace } from './search/html-text.js'
 export {
   BrowserPool,
   DEFAULT_USER_AGENT,
+  missingPlaywrightMessage,
   type BrowserContext,
   type BrowserHandle,
   type BrowserPage,

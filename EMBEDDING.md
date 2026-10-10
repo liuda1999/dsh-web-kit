@@ -33,6 +33,10 @@ handler, no framework types anywhere.
 - `text` — what you give the model. On failure it is `Error: <message>`.
 - `isError` — check this, do not parse `text`.
 - `value` — the structured result (`{ sources, truncated }` / `{ url, statusCode, body, truncated }`).
+  **`undefined` when `isError` is `true`.** Reading `result.value.statusCode`
+  on a failed call throws `Cannot read properties of undefined` — a real trap,
+  because the call failed *and* the failure is reported as a TypeError from
+  your own code. Branch on `isError` first and use `text` / `code` on that path.
 - `code` — the machine-routable error code. Route on this.
 
 ---
@@ -196,6 +200,16 @@ the cache wraps the whole chain, so you never index an empty shell.
 
 It degrades silently and safely: with Playwright absent, nothing is ever
 launched and every fetch is plain HTTP.
+
+**One guarantee you lose by enabling it.** The HTTP provider pins validated
+addresses into the connection, so DNS cannot change between the check and the
+connect. A browser resolves names and follows redirects itself, so render assist
+cannot offer that: the requested URL is validated before launch and the landing
+URL again after navigation, but a hostile answer in between is possible, and the
+page's own scripts (`<img>`, `fetch()`) are not checked at all. Policy refusals
+(`WEB_BLOCKED_URL`, `WEB_REDIRECT_BLOCKED`, …) are never retried through the
+browser — a renderer is not a second opinion on a security decision. If your
+host can reach an internal network, run the browser somewhere that cannot.
 
 ---
 

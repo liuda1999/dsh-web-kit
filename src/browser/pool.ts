@@ -71,6 +71,15 @@ export interface BrowserPoolOptions {
   readonly navigationTimeoutMs?: number
   /** Extra Chromium launch arguments. */
   readonly args?: readonly string[]
+  /**
+   * What the pool is being used for, which decides how a missing `playwright`
+   * is described. Defaults to `'search'`.
+   *
+   * The pool is shared by search and fetch, and the install hint is identical
+   * for both — but a fetch-side failure saying "browser search requires..."
+   * sends the reader looking in the wrong half of the docs.
+   */
+  readonly purpose?: 'search' | 'fetch'
 }
 
 /**
@@ -80,6 +89,23 @@ export interface BrowserPoolOptions {
  * gets its own context so cookies and storage never leak between queries. The
  * browser is closed by {@link BrowserPool.close} (or `dispose()`).
  */
+/**
+ * The message for a missing optional `playwright`, in the terms of whatever
+ * the pool was asked to do.
+ *
+ * Shared by search and fetch, and the install hint is the same for both — but
+ * a fetch-side failure reading "browser search requires..." sends the reader to
+ * the wrong half of the docs, so the two are worded apart.
+ */
+export function missingPlaywrightMessage(purpose: 'search' | 'fetch' | undefined): string {
+  const subject = purpose === 'fetch' ? 'browser rendering of a fetched page' : 'browser search'
+  return (
+    `${subject} requires the optional dependency "playwright" (npm install playwright) ` +
+    'and a browser: set channel "msedge" or "chrome" to use the one already installed, ' +
+    'or run `npx playwright install chromium`'
+  )
+}
+
 export class BrowserPool {
   private readonly options: BrowserPoolOptions
   private browser: BrowserHandle | undefined
@@ -88,6 +114,11 @@ export class BrowserPool {
 
   constructor(options: BrowserPoolOptions = {}) {
     this.options = options
+  }
+
+  /** What this pool was created for. See {@link BrowserPoolOptions.purpose}. */
+  get purpose(): 'search' | 'fetch' {
+    return this.options.purpose ?? 'search'
   }
 
   /** Launch arguments used for every attempt. */
@@ -108,13 +139,9 @@ export class BrowserPool {
     try {
       return (await import('playwright')) as unknown as PlaywrightModule
     } catch (cause: unknown) {
-      throw new WebError(
-        'browser search requires the optional dependency "playwright" (npm install playwright) ' +
-          'and a browser: set channel "msedge" or "chrome" to use the one already installed, ' +
-          'or run `npx playwright install chromium`',
-        'WEB_PROVIDER_UNAVAILABLE',
-        { cause },
-      )
+      throw new WebError(missingPlaywrightMessage(this.options.purpose), 'WEB_PROVIDER_UNAVAILABLE', {
+        cause,
+      })
     }
   }
 
