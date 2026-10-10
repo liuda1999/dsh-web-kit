@@ -9,6 +9,7 @@
  */
 
 import type { WebFetchResult } from '../types.js'
+import { WebError } from '../types.js'
 import { renderBody } from './html.js'
 import { EXTERNAL_WEB_CONTENT_NOTICE } from './trust.js'
 
@@ -30,10 +31,23 @@ export interface WebFetchMeta {
   readonly truncated: boolean
 }
 
-/** Validate `web_fetch` arguments. */
+/**
+ * Validate `web_fetch` arguments.
+ *
+ * Rejects with `WEB_INVALID_ARGS` rather than a `TypeError` when `url` is
+ * missing or not a string, so a host (or a model that guessed the argument
+ * name) gets a message it can act on and a code it can route on.
+ */
 export function parseFetchArgs(args: WebFetchArgs): { url: string } {
-  if (args.url.trim().length === 0) throw new Error('url must be a non-empty string')
-  return { url: args.url }
+  const url = (args as unknown as { url?: unknown } | null | undefined)?.url
+  if (typeof url !== 'string') {
+    throw new WebError(
+      `url must be a string; got ${url === null ? 'null' : url === undefined ? 'undefined' : `a ${typeof url}`}`,
+      'WEB_INVALID_ARGS',
+    )
+  }
+  if (url.trim().length === 0) throw new WebError('url must be a non-empty string', 'WEB_INVALID_ARGS')
+  return { url }
 }
 
 /** The truncation notice appended when the provider or the output cap cut content. */

@@ -81,6 +81,13 @@ import { webToolPromptSections } from 'dsh-web-kit'
 const sections = webToolPromptSections({ search: true, fetch: true })
 ```
 
+**Embedding it in your own agent** — one kit per process, `dispose()` on every
+exit path, cancellation, OpenAI-compatible `tools` conversion, where it writes,
+and the traps: see [EMBEDDING.md](EMBEDDING.md). Runnable hosts are in
+[`examples/`](examples/): `minimal-host.mjs` (offline),
+`openclaw-tool-host.mjs` (real search + fetch + lifecycle),
+`openai-function-calling.mjs`.
+
 ---
 
 ## Which engines actually work (measured 2026-10-10, mainland-China network)
@@ -681,7 +688,12 @@ Route on `outcome.code`, never on the message text.
 `WEB_DUPLICATE_PROVIDER` · `WEB_ABORTED` · `WEB_SEARCH_TIMEOUT` ·
 `WEB_INVALID_URL` · `WEB_BLOCKED_URL` · `WEB_REDIRECT_BLOCKED` ·
 `WEB_FETCH_TOO_LARGE` · `WEB_FETCH_TIMEOUT` · `WEB_UNSUPPORTED_CONTENT_TYPE` ·
-`WEB_PROVIDER_ERROR`
+`WEB_PROVIDER_ERROR` · `WEB_INVALID_ARGS`
+
+`WEB_INVALID_ARGS` is the tool-layer rejection: arguments of the wrong shape.
+The message names the field the caller should have used — a model that sends
+`query` instead of `queries` is told the field is `queries` (plural), which
+lets it correct itself on the next turn.
 
 ---
 

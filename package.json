@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-kit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Standalone web_search / web_fetch capability extracted from DeepSeek Harness (deepseek-harness). Cordis-free, framework-neutral tool definitions, and search providers that need no third-party API key.",
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,9 @@
   "files": [
     "dist",
     "scripts",
+    "examples",
     "README.md",
+    "EMBEDDING.md",
     "ATTRIBUTION.md"
   ],
   "scripts": {
@@ -37,20 +39,26 @@
     "no-api-key"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liuda1999/dsh-web-kit.git"
+  },
+  "homepage": "https://github.com/liuda1999/dsh-web-kit#readme",
+  "bugs": {
+    "url": "https://github.com/liuda1999/dsh-web-kit/issues"
+  },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "@types/node": "^22.10.0",
     "ipaddr.js": "^2.5.0",
-    "playwright": "^1.64.0",
     "turndown": "^7.2.4",
     "undici": "^8.10.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "@types/turndown": "^5.0.6",
-    "playwright": "^1.64.0",
     "typescript": "^5.7.0"
   },
   "optionalDependencies": {

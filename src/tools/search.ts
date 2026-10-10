@@ -10,6 +10,7 @@
  */
 
 import type { WebSearchResult, WebSearchSource } from '../types.js'
+import { WebError } from '../types.js'
 import type { WebRuntime } from '../runtime.js'
 import { EXTERNAL_WEB_CONTENT_NOTICE } from './trust.js'
 
@@ -34,15 +35,43 @@ export interface WebSearchMeta {
   readonly answer?: string
 }
 
-/** Validate and normalize `web_search` arguments. */
+/** Name a rejected value's type. Never dumps the value: it can be a whole page. */
+function describe(value: unknown): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (Array.isArray(value)) return 'an array'
+  return `a ${typeof value}`
+}
+
+/**
+ * Validate and normalize `web_search` arguments.
+ *
+ * Every rejection is a {@link WebError} carrying `WEB_INVALID_ARGS`, not a
+ * bare `TypeError`. This is the first thing a model sees: when it mis-names a
+ * field — `query` for `queries`, the single most common mistake — a message
+ * that names the right field lets it correct itself on the next turn, whereas
+ * "Cannot read properties of undefined" makes it repeat the same call forever.
+ */
 export function parseSearchArgs(args: WebSearchArgs, maxQueries: number): string[] {
-  const queries = args.queries
-  if (queries.length === 0) throw new Error('queries must contain at least one query')
+  const queries = (args as unknown as { queries?: unknown } | null | undefined)?.queries
+  if (!Array.isArray(queries)) {
+    const hint = typeof args === 'object' && args !== null && 'query' in args
+      ? ' — the field is "queries" (plural), an array of strings'
+      : ''
+    throw new WebError(`queries must be an array of strings; got ${describe(queries)}${hint}`, 'WEB_INVALID_ARGS')
+  }
+  if (queries.length === 0) throw new WebError('queries must contain at least one query', 'WEB_INVALID_ARGS')
   if (queries.length > maxQueries) {
     const noun = maxQueries === 1 ? 'query' : 'queries'
-    throw new Error(`queries must contain at most ${maxQueries} ${noun}`)
+    throw new WebError(`queries must contain at most ${maxQueries} ${noun}`, 'WEB_INVALID_ARGS')
   }
-  if (queries.some(query => query.trim().length === 0)) throw new Error('each query must be a non-empty string')
+  const notString = queries.findIndex(query => typeof query !== 'string')
+  if (notString !== -1) {
+    throw new WebError(`queries[${notString}] must be a string; got ${describe(queries[notString])}`, 'WEB_INVALID_ARGS')
+  }
+  if (queries.some(query => query.trim().length === 0)) {
+    throw new WebError('each query must be a non-empty string', 'WEB_INVALID_ARGS')
+  }
   return [...new Set(queries)]
 }
 

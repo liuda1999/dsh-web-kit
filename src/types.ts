@@ -91,7 +91,8 @@ export interface WebFetchProvider {
  * `WEB_DUPLICATE_PROVIDER`, `WEB_ABORTED`. The local fetch provider adds
  * `WEB_INVALID_URL`, `WEB_BLOCKED_URL`, `WEB_REDIRECT_BLOCKED`,
  * `WEB_FETCH_TOO_LARGE`, `WEB_FETCH_TIMEOUT`, `WEB_UNSUPPORTED_CONTENT_TYPE`,
- * `WEB_PROVIDER_ERROR`.
+ * `WEB_PROVIDER_ERROR`. The tool layer adds `WEB_INVALID_ARGS` for rejected
+ * arguments, so a mis-named tool field is routable instead of a `TypeError`.
  */
 /**
  * Read and validate the query on a search request.
