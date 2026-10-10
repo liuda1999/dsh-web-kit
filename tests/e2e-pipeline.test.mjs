@@ -490,3 +490,39 @@ test('fetch: a same-origin redirect is followed rather than refused', { timeout:
   assert.equal(new URL(result.url).pathname, '/get', `landed on ${result.url}`)
   assert.match(result.body.content, /httpbin|origin/i, 'body should be the redirected target')
 })
+
+test('fetch: a server-side grid of placeholders is rendered until it holds numbers', { timeout: 120_000 }, async () => {
+  // The blind spot this whole fallback exists for, in its hardest form: the
+  // grid ships *with* rows, and the name column carries real text, so neither
+  // "does it have rows" nor "does any cell have text" can see that every price
+  // is `--`. Only the placeholder count can — and then the renderer has to wait
+  // for the XHR, or it returns the same dashes it was sent to fix.
+  const result = await kit.web.fetch({ url: 'https://www.cngold.org/xhhj/' })
+
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.rendered, true, 'the placeholder grid must have triggered a render')
+
+  const rows = result.body.content.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []
+  const quote = rows
+    .map(row => (row.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? [])
+      .map(cell => cell.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()))
+    .find(cells => cells[0] === '伦敦黄金')
+
+  assert.ok(quote !== undefined, 'the quote row must be present in the returned body')
+  // A price, not a dash: this is the assertion that fails without the fix.
+  assert.match(quote[1] ?? '', /\d/, `the price cell must hold a number, got "${quote[1] ?? ''}"`)
+  console.log(`[grid] 伦敦黄金 row: ${quote.join(' | ')}`)
+})
+
+test('fetch: a page whose tables are already populated is not rendered', { timeout: 90_000 }, async () => {
+  // The other half of the same measurement: rendering MDN *loses* (40,023 vs
+  // 28,320 characters), so a shell test that fires on any small table would
+  // spend two seconds to make the page worse. It fires only when the render
+  // wins, so what must be pinned is that it never fires here.
+  const result = await kit.web.fetch({
+    url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array',
+  })
+
+  assert.equal(result.statusCode, 200)
+  assert.notEqual(result.rendered, true, 'a populated page must not cost a browser launch')
+})

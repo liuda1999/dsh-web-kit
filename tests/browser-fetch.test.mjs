@@ -157,6 +157,84 @@ test('a missing playwright is reported in the terms of what was asked for', () =
   }
 })
 
+/**
+ * A pool that hands `fetch` a scripted page.
+ *
+ * `contents` is what `page.content()` returns, in order; the last value repeats
+ * when the script runs out.
+ */
+function scriptedPool(contents) {
+  let index = 0
+  const waits = []
+  const page = {
+    async goto() {
+      return { status: () => 200 }
+    },
+    url: () => 'https://example.com/',
+    async waitForTimeout(ms) {
+      waits.push(ms)
+    },
+    async content() {
+      const value = contents[Math.min(index, contents.length - 1)]
+      index++
+      return value
+    },
+  }
+  return { pool: { withPage: async fn => fn(page), close: async () => undefined }, waits }
+}
+
+/** A grid whose price cells are placeholders, and the same grid once filled. */
+const UNFILLED = '<html><body><table>'
+  + '<tr><td>伦敦黄金</td><td>--</td><td>--</td></tr>'.repeat(4)
+  + '</table></body></html>'
+const FILLED = '<html><body><table>'
+  + '<tr><td>伦敦黄金</td><td>4193.8</td><td>1.5</td></tr>'.repeat(4)
+  + '</table></body></html>'
+
+test('a grid that fills late is waited for', async () => {
+  // The measured failure: with a fixed settle the render ran, was judged the
+  // better body, and still returned a table of `--` because the XHR had not
+  // landed. Waiting for the thing actually wanted — filled cells — fixes it.
+  const { pool, waits } = scriptedPool([UNFILLED, FILLED])
+  const provider = new BrowserFetchProvider({ pool, settleMs: 0 })
+
+  const result = await provider.fetch({ url: 'https://example.com/' })
+
+  assert.ok(result.body.content.includes('4193.8'), 'the filled grid must be the one returned')
+  assert.ok(waits.length >= 1, 'the provider must wait for data that has not arrived')
+})
+
+test('a page whose tables are already filled is not waited for', async () => {
+  const { pool, waits } = scriptedPool([FILLED])
+  const provider = new BrowserFetchProvider({ pool, settleMs: 0 })
+
+  await provider.fetch({ url: 'https://example.com/' })
+
+  assert.equal(waits.length, 0, 'a populated page must not pay the fill budget')
+})
+
+test('a grid that never fills costs one poll, not the whole budget', async () => {
+  // Markets are closed, the endpoint is down: the DOM is never going to change.
+  // Detecting "the DOM stopped changing" exits instead of burning 3 s.
+  const { pool, waits } = scriptedPool([UNFILLED])
+  const provider = new BrowserFetchProvider({ pool, settleMs: 0 })
+
+  const result = await provider.fetch({ url: 'https://example.com/' })
+
+  assert.equal(waits.length, 1, 'an unchanging DOM must end the wait after one poll')
+  assert.ok(result.body.content.includes('--'))
+})
+
+test('the fill wait can be switched off', async () => {
+  const { pool, waits } = scriptedPool([UNFILLED, FILLED])
+  const provider = new BrowserFetchProvider({ pool, settleMs: 0, fillWaitMs: 0 })
+
+  const result = await provider.fetch({ url: 'https://example.com/' })
+
+  assert.equal(waits.length, 0)
+  assert.ok(result.body.content.includes('--'), 'with no budget the DOM is read as it stands')
+})
+
 test('the fetch provider tells its pool it is fetching', () => {
   const provider = new BrowserFetchProvider()
   assert.equal(provider.browserPool.purpose, 'fetch')

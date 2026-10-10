@@ -2,23 +2,40 @@
  * `withRenderFallback(primary, renderer)`: HTTP first, browser only when the
  * static body looks like a shell — and only when rendering actually wins.
  *
- * Two measured facts drive this design:
+ * Three measured facts drive this design:
  *
  * 1. **A short static body is not the only signal.** Pages that build their
  *    tables from XHR responses can carry several thousand characters of static
  *    chrome and still have zero data rows. Judging on text length alone misses
- *    the market grids this exists for, so a table skeleton with almost no rows
- *    counts as a shell too.
+ *    the market grids this exists for, so an unfilled table counts as a shell
+ *    too.
  *
- * 2. **Rendering can make a page worse.** Measured on the same ten sites:
+ * 2. **"Has rows" is not "has data", and neither is "has a filled cell".**
+ *    `www.cngold.org/xhhj/` ships its grid server-side with every price cell
+ *    holding `--`: 16 `<tr>` around eight rows of placeholders. Two cheaper
+ *    tests were tried and both failed on that page, which is why the check is
+ *    what it is:
+ *
+ *    - *count rows* — passes, because the skeleton has rows, so no render.
+ *    - *count rows that contain any non-empty cell* — also passes, because the
+ *      name column ("伦敦黄金") is real text and rescues every row; and on top
+ *      of that the page's footer "recommended reading" table contributes six
+ *      genuinely-filled rows that mask the empty grid beside it.
+ *
+ *    What separates a filled grid from an unfilled one is the **cell**: a table
+ *    where placeholder cells outnumber real ones has not been populated. That
+ *    is measured per table, because a page can hold one empty grid next to one
+ *    table that is honestly full.
+ *
+ * 3. **Rendering can make a page worse.** Measured on the same ten sites:
  *    music.163.com drops from 17,640 characters of main text to **484**, and
  *    MDN from 40,023 to 28,320 — a hash-routed SPA and a hydrated docs page
  *    both render to less than the source they came from. Replacing the static
  *    body unconditionally would silently destroy working pages.
  *
  * So the renderer runs when the static body looks like a shell, and its result
- * is kept **only when it scores higher**. Scoring weights data rows because a
- * row of figures is worth more than a screen of navigation.
+ * is kept **only when it scores higher**. Scoring weights populated cells
+ * because a grid of figures is worth more than a screen of navigation.
  *
  * NEW CODE — not present in DeepSeek Harness.
  *
@@ -37,8 +54,47 @@ export interface ContentSignals {
   readonly tableCount: number
   /** Number of `<tr` elements — the data rows, whether or not they were filled. */
   readonly rowCount: number
+  /** `<td>` cells whose text is real data rather than a placeholder. */
+  readonly dataCells: number
+  /** `<td>` cells that are empty or hold a placeholder such as `--`. */
+  readonly placeholderCells: number
+  /**
+   * Tables that have cells at all but hold more placeholders than data.
+   *
+   * This is the signal that separates a delivered grid from a skeleton: rows
+   * alone do not, and neither does "some cell in the row has text".
+   */
+  readonly unfilledTableCount: number
   /** Number of `<img` elements. */
   readonly imageCount: number
+}
+
+/**
+ * Cells that mean "no value yet": dashes, dots, the "nothing here" words.
+ *
+ * `0.00` is deliberately absent. A market grid at rest shows `0.00` for a
+ * genuinely flat price, and treating that as a placeholder would launch a
+ * browser on every closed market in the world.
+ */
+const PLACEHOLDER_CELL = /^(?:[-—–_*.·•\s]|&nbsp;|暂无|无数据|null|n\/?a|-{2,})$/i
+
+/**
+ * Text of one cell: tags off, `&nbsp;` to a space, whitespace collapsed.
+ *
+ * `&nbsp;` must be handled before the whitespace collapse, or a cell that is
+ * nothing but that entity reads as non-empty content.
+ */
+export function cellText(cellHtml: string): string {
+  return cellHtml
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** True when a cell holds no value — empty, or only a placeholder glyph. */
+export function isPlaceholderCell(text: string): boolean {
+  return text.length === 0 || PLACEHOLDER_CELL.test(text)
 }
 
 /**
@@ -46,8 +102,14 @@ export interface ContentSignals {
  *
  * The regexes are deliberately crude: this decides whether to spend seconds on
  * a browser, not what the page says. Being wrong by a few tags is harmless.
+ *
+ * Tables are measured one at a time. Aggregating over the whole page is what
+ * let the footer's filled rows hide an empty quote grid.
  */
-export function contentSignals(html: string): ContentSignals {
+export function contentSignals(
+  html: string,
+  minPlaceholderCells: number = DEFAULT_MIN_PLACEHOLDER_CELLS,
+): ContentSignals {
   const stripped = html
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
@@ -55,10 +117,32 @@ export function contentSignals(html: string): ContentSignals {
     .replace(/<template\b[\s\S]*?<\/template>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
   const textChars = stripped.replace(/\s+/g, ' ').trim().length
+
+  const tables = html.match(/<table\b[\s\S]*?<\/table>/gi) ?? []
+  let dataCells = 0
+  let placeholderCells = 0
+  let unfilledTableCount = 0
+  for (const table of tables) {
+    const cells = table.match(/<td\b[\s\S]*?<\/td>/gi) ?? []
+    let placeholders = 0
+    for (const cell of cells) {
+      if (isPlaceholderCell(cellText(cell))) placeholders++
+    }
+    const data = cells.length - placeholders
+    dataCells += data
+    placeholderCells += placeholders
+    // "More placeholders than data" needs a floor as well, or a table whose
+    // only cell is a single `-` would count as an unfilled grid.
+    if (placeholders >= minPlaceholderCells && placeholders > data) unfilledTableCount++
+  }
+
   return {
     textChars,
-    tableCount: (html.match(/<table\b/gi) ?? []).length,
+    tableCount: tables.length,
     rowCount: (html.match(/<tr\b/gi) ?? []).length,
+    dataCells,
+    placeholderCells,
+    unfilledTableCount,
     imageCount: (html.match(/<img\b/gi) ?? []).length,
   }
 }
@@ -108,11 +192,27 @@ function mainTextChars(html: string, fallback: ContentSignals): number {
 }
 
 /**
- * Weight of one data row when comparing two bodies, in main-text characters.
- * A row of figures is short in characters and high in value, so rows are
- * counted as more than their raw length.
+ * Weight of one populated cell when comparing two bodies, in main-text
+ * characters. A cell of figures is short in characters and high in value, so
+ * cells are counted as more than their raw length.
+ *
+ * 12 is the old row weight (50) divided by the five cells a market row has.
+ * Measured on `www.cngold.org/xhhj/`, whose eight price rows fill 8 more cells
+ * when rendered: static 7,494 + 20×12 = 7,734 against rendered 7,609 + 28×12 =
+ * 7,945 — the rendered body wins by 211, which is what makes the gap more than
+ * noise without letting a grid outvote a page.
  */
-export const DEFAULT_ROW_WEIGHT = 50
+export const DEFAULT_CELL_WEIGHT = 12
+
+/**
+ * Placeholder cells a table must hold before it can count as unfilled.
+ * Default 2.
+ *
+ * One is too few: any table with a single `-` in it — a footnote, a range like
+ * "2019-" — would launch a browser. Two is where a skeleton becomes
+ * distinguishable from a page that simply has a dash somewhere.
+ */
+export const DEFAULT_MIN_PLACEHOLDER_CELLS = 2
 
 /** Options for {@link withRenderFallback}. */
 export interface RenderFallbackOptions {
@@ -132,10 +232,19 @@ export interface RenderFallbackOptions {
    */
   readonly sparseTableRows?: number
   /**
-   * Value of one data row in the comparison, in text characters.
-   * Defaults to {@link DEFAULT_ROW_WEIGHT}.
+   * Placeholder cells one table must hold — and outnumber real cells — before
+   * the page counts as a shell. Defaults to
+   * {@link DEFAULT_MIN_PLACEHOLDER_CELLS}.
+   *
+   * This is the test that catches a server-side grid whose prices are all
+   * `--`. Raise it if a page legitimately renders mostly dashes.
    */
-  readonly rowWeight?: number
+  readonly minPlaceholderCells?: number
+  /**
+   * Value of one populated cell in the comparison, in text characters.
+   * Defaults to {@link DEFAULT_CELL_WEIGHT}.
+   */
+  readonly cellWeight?: number
   /**
    * Status codes that retry through the renderer even though the fetch itself
    * succeeded — challenge pages answer 403/429/503 and resolve only once their
@@ -169,23 +278,32 @@ export function withRenderFallback(
 ): WebFetchProvider & { readonly providers: readonly WebFetchProvider[]; dispose(): Promise<void> } {
   const minTextChars = options.minTextChars ?? 1500
   const sparseTableRows = options.sparseTableRows ?? 3
-  const rowWeight = options.rowWeight ?? DEFAULT_ROW_WEIGHT
+  const minPlaceholderCells = options.minPlaceholderCells ?? DEFAULT_MIN_PLACEHOLDER_CELLS
+  const cellWeight = options.cellWeight ?? DEFAULT_CELL_WEIGHT
   const retryOnStatus = options.retryOnStatus ?? [403, 429, 503]
 
   const signalsOf = (result: WebFetchResult): ContentSignals =>
-    result.body.kind === 'html' ? contentSignals(result.body.content) : { textChars: 0, tableCount: 0, rowCount: 0, imageCount: 0 }
+    result.body.kind === 'html'
+      ? contentSignals(result.body.content, minPlaceholderCells)
+      : { textChars: 0, tableCount: 0, rowCount: 0, dataCells: 0, placeholderCells: 0, unfilledTableCount: 0, imageCount: 0 }
 
   const looksLikeShell = (result: WebFetchResult): boolean => {
     if (options.judge !== undefined) return options.judge(result)
     if (result.body.kind !== 'html') return false
     const signals = signalsOf(result)
     if (mainTextChars(result.body.content, signals) < minTextChars) return true
-    // A table skeleton the server never filled: the grid is there, the data is not.
-    return signals.tableCount >= 1 && signals.rowCount <= sparseTableRows
+    // A skeleton with rows but not one populated cell. The cell condition
+    // matters: on MDN the static body carries a two-row table — a `<th>` header
+    // and one real row — and a bare row-count test renders that page for
+    // nothing, which costs two seconds and buys a body that then loses.
+    if (signals.tableCount >= 1 && signals.rowCount <= sparseTableRows && signals.dataCells === 0) return true
+    // A skeleton the server shipped with placeholder cells: rows exist, and so
+    // do some real cells — the name column — but the values are all `--`.
+    return signals.unfilledTableCount >= 1
   }
 
   const score = (result: WebFetchResult, signals: ContentSignals): number =>
-    (result.body.kind === 'html' ? mainTextChars(result.body.content, signals) : 0) + signals.rowCount * rowWeight
+    (result.body.kind === 'html' ? mainTextChars(result.body.content, signals) : 0) + signals.dataCells * cellWeight
 
   return {
     id: primary.id,

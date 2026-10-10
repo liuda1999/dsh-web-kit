@@ -13,9 +13,10 @@ import assert from 'node:assert/strict'
 
 import {
   contentSignals,
+  isPlaceholderCell,
   withRenderFallback,
   WebError,
-  DEFAULT_ROW_WEIGHT,
+  DEFAULT_CELL_WEIGHT,
 } from '../dist/index.js'
 
 /** A provider that returns a fixed body, or throws. */
@@ -38,15 +39,32 @@ function fakeProvider(id, body, options = {}) {
 }
 
 /** A body whose extracted main text is roughly `n` characters. */
-function bodyWithText(n, tables = 0, rows = 0) {
+function bodyWithText(n, tables = 0, rows = 0, cellsPerRow = 1) {
   const p = `<p>${'x'.repeat(Math.max(n, 0))}</p>`
   const table = tables > 0
-    ? `<table>${'<tr><td>1</td></tr>'.repeat(rows)}</table>`
+    ? `<table>${`<tr>${'<td>1</td>'.repeat(cellsPerRow)}</tr>`.repeat(rows)}</table>`
     : ''
   return `<html><body>${p}${table}</body></html>`
 }
 
-test('contentSignals counts text, tables, rows and images without a DOM', () => {
+/** A body around a table whose rows exist but whose cells are all empty. */
+function bodyWithSkeleton(n, rows) {
+  const p = `<p>${'x'.repeat(Math.max(n, 0))}</p>`
+  return `<html><body>${p}<table>${'<tr><td></td></tr>'.repeat(rows)}</table></body></html>`
+}
+
+/**
+ * A shipped grid whose price cells are all `--`, around 5,000 characters of
+ * chrome. This is `www.cngold.org/xhhj/` in miniature and it is the page the
+ * cell-level test exists for: long enough for the text test, and — unlike a
+ * skeleton — full of rows.
+ */
+function placeholderGrid(rows, bodyText = 5000) {
+  const row = '<tr><td>伦敦黄金</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>'
+  return `<html><body><p>${'x'.repeat(bodyText)}</p><table>${row.repeat(rows)}</table></body></html>`
+}
+
+test('contentSignals counts text, tables, rows, cells and images without a DOM', () => {
   const html = '<html><head><script>var a=1;</script><style>p{}</style></head>'
     + '<body><table><tr><td>a</td></tr><tr><td>b</td></tr></table><img src="x"></body></html>'
   const signals = contentSignals(html)
@@ -55,7 +73,41 @@ test('contentSignals counts text, tables, rows and images without a DOM', () => 
   assert.equal(signals.textChars, 3)
   assert.equal(signals.tableCount, 1)
   assert.equal(signals.rowCount, 2)
+  assert.equal(signals.dataCells, 2)
+  assert.equal(signals.placeholderCells, 0)
+  assert.equal(signals.unfilledTableCount, 0)
   assert.equal(signals.imageCount, 1)
+})
+
+test('a grid of placeholders is measured as unfilled, table by table', () => {
+  const signals = contentSignals(placeholderGrid(8))
+  // 8 rows x (1 name + 4 dashes): the name column carries real text, which is
+  // exactly why "any filled cell" was not enough — only the count does.
+  assert.equal(signals.rowCount, 8, 'rows exist, so a row count would call this filled')
+  assert.equal(signals.dataCells, 8)
+  assert.equal(signals.placeholderCells, 32)
+  assert.equal(signals.unfilledTableCount, 1, 'placeholders outnumber data, so the grid is unfilled')
+})
+
+test('a filled table next to an empty grid does not hide the grid', () => {
+  // The page that defeated the first attempt: the footer's "recommended
+  // reading" table is genuinely full, and counting filled rows across the whole
+  // page let it mask the quote grid beside it.
+  const footer = '<table>' + '<tr><td>现货黄金开户要多少钱</td><td>建行现货黄金开户介绍</td></tr>'.repeat(6) + '</table>'
+  const html = placeholderGrid(8).replace('</body>', `${footer}</body>`)
+  const signals = contentSignals(html)
+  assert.equal(signals.tableCount, 2)
+  assert.equal(signals.unfilledTableCount, 1, 'the empty grid is still visible next to a full table')
+})
+
+test('isPlaceholderCell separates "no value" from a real number', () => {
+  for (const text of ['', '--', '---', '—', '-', '·', '暂无', 'N/A']) {
+    assert.equal(isPlaceholderCell(text), true, `"${text}" means no value`)
+  }
+  // A flat market prints 0.00; calling that a placeholder would launch a
+  // browser on every closed exchange.
+  assert.equal(isPlaceholderCell('0.00'), false)
+  assert.equal(isPlaceholderCell('4193.8'), false)
 })
 
 test('a body with plenty of main text never launches the renderer', async () => {
@@ -87,11 +139,11 @@ test('a short body renders, and the richer rendered body replaces it', async () 
   assert.equal(decisions[0]?.usedRendered, true)
 })
 
-test('a table skeleton with no filled rows counts as a shell', async () => {
+test('a table skeleton with no filled cells counts as a shell', async () => {
   // 5000 chars of chrome around an empty grid: long enough to pass any
   // text-only test, and still a page whose data has not loaded.
-  const primary = fakeProvider('http', bodyWithText(5000, 1, 1))
-  const renderer = fakeProvider('browser', bodyWithText(5000, 1, 40))
+  const primary = fakeProvider('http', bodyWithSkeleton(5000, 1))
+  const renderer = fakeProvider('browser', bodyWithText(5000, 1, 40, 5))
   const chain = withRenderFallback(primary, renderer)
 
   const result = await chain.fetch({ url: 'https://example.com/' })
@@ -101,15 +153,62 @@ test('a table skeleton with no filled rows counts as a shell', async () => {
 })
 
 test('rendering keeps a table-rich body even when its text is shorter', async () => {
-  // 40 data rows are worth more than the 600 characters they cost.
+  // 40 rows of five figures are worth more than the 600 characters they cost.
   const primary = fakeProvider('http', bodyWithText(1200))
-  const renderer = fakeProvider('browser', bodyWithText(600, 1, 40))
+  const renderer = fakeProvider('browser', bodyWithText(600, 1, 40, 5))
   const chain = withRenderFallback(primary, renderer)
 
   const result = await chain.fetch({ url: 'https://example.com/' })
 
   assert.equal(result.rendered, true)
-  assert.ok(600 + 40 * DEFAULT_ROW_WEIGHT > 1200, 'rows must be weighted to win')
+  assert.ok(600 + 40 * 5 * DEFAULT_CELL_WEIGHT > 1200, 'cells must be weighted to win')
+})
+
+test('a grid whose cells are all placeholders renders even though it has rows', async () => {
+  // The blind spot: 5,000 characters of chrome, eight rows, every price `--`.
+  // Row counts and "some cell has text" both call this page healthy.
+  const primary = fakeProvider('http', placeholderGrid(8))
+  const renderer = fakeProvider('browser', bodyWithText(5000, 1, 8, 5))
+  const decisions = []
+  const chain = withRenderFallback(primary, renderer, { onDecision: d => decisions.push(d) })
+
+  const result = await chain.fetch({ url: 'https://example.com/' })
+
+  assert.equal(renderer.calls, 1, 'a grid of placeholders must trigger a render')
+  assert.equal(result.rendered, true)
+  assert.equal(decisions[0]?.reason, 'shell')
+  assert.ok(decisions[0]?.static?.unfilledTableCount >= 1)
+})
+
+test('a table with one dash in it is not an unfilled grid', async () => {
+  // minPlaceholderCells exists for this: a range like "2019-" or a footnote
+  // dash should not cost a browser launch.
+  const html = '<html><body><p>' + 'x'.repeat(5000) + '</p>'
+    + '<table><tr><td>2019-</td><td>上海</td><td>北京</td></tr>'
+    + '<tr><td>2020</td><td>广州</td><td>深圳</td></tr></table></body></html>'
+  const primary = fakeProvider('http', html)
+  const renderer = fakeProvider('browser', bodyWithText(9000))
+  const chain = withRenderFallback(primary, renderer)
+
+  await chain.fetch({ url: 'https://example.com/' })
+
+  assert.equal(renderer.calls, 0, 'one dash in an otherwise real table is not a shell')
+})
+
+test('a small static table — header plus one row — is not an unfilled grid', async () => {
+  // The failure mode of the per-table row test: it read "header + 1 data row"
+  // as one filled row and called such tables empty, which would have rendered
+  // MDN for no reason.
+  const html = '<html><body><p>' + 'x'.repeat(5000) + '</p>'
+    + '<table><tr><th>Name</th><th>Value</th></tr><tr><td>gold</td><td>4193.8</td></tr></table>'
+    + '</body></html>'
+  const primary = fakeProvider('http', html)
+  const renderer = fakeProvider('browser', bodyWithText(9000))
+  const chain = withRenderFallback(primary, renderer)
+
+  await chain.fetch({ url: 'https://example.com/' })
+
+  assert.equal(renderer.calls, 0, 'a real two-row table must not trigger a render')
 })
 
 test('when rendering loses, the static body is kept', async () => {

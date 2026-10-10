@@ -186,8 +186,10 @@ comes back as a shell**, and keeps the rendered DOM only when it beats what HTTP
 already returned. This is invisible to your tool wiring and visible in three
 other places:
 
-- **Latency**: a page that triggers costs 2–3 s instead of ~0.2 s. Pages that
-  do not trigger are unaffected.
+- **Latency**: a page that triggers costs 2.5–4 s instead of ~0.2 s — since
+  0.8.0 a shell whose tables have not filled yet is waited for, up to
+  `fillWaitMs` (3,000 ms) beyond the settle. Pages that do not trigger are
+  unaffected, and a page whose tables are already populated pays nothing.
 - **The flag**: `value.rendered === true` tells you a browser ran. If a fetch
   unexpectedly takes seconds, this is why — surface it in your logs and you
   will never have to guess.

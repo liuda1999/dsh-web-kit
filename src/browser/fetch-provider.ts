@@ -20,6 +20,7 @@ import { validateFetchUrl } from '../fetch/policy.js'
 import { resolvePublicAddresses } from '../fetch/network.js'
 import { deadline, timeoutOf } from '../timeout.js'
 import { cleanPageHtml, type ExtractOptions } from '../filter/extract.js'
+import { contentSignals } from '../fetch/render-fallback.js'
 import type { BrowserPage, BrowserPool, BrowserPoolOptions } from './pool.js'
 import { BrowserPool as Pool } from './pool.js'
 
@@ -32,6 +33,22 @@ export const BROWSER_FETCH_PROVIDER_ID = 'browser-fetch'
  * the HTTP provider's body cap.
  */
 export const DEFAULT_BROWSER_BODY_CHARS = 1_000_000
+
+/**
+ * Extra time allowed for a table to receive its data, in milliseconds.
+ * Defaults to 3000.
+ *
+ * Measured on `www.cngold.org/xhhj/`: with a fixed 1,500 ms settle the grid
+ * came back with **8 of 40** placeholder cells filled — the render ran, was
+ * correctly judged the better body, and still handed the model a table of `--`.
+ * The XHR that fills those cells simply had not landed. Rather than raise the
+ * settle for every page, this waits only when the DOM still shows an unfilled
+ * table, and returns as soon as it stops changing.
+ */
+export const DEFAULT_FILL_WAIT_MS = 3_000
+
+/** Interval between fill checks, in milliseconds. */
+export const FILL_POLL_MS = 700
 
 /** Options for {@link BrowserFetchProvider}. */
 export interface BrowserFetchProviderOptions extends BrowserPoolOptions {
@@ -48,6 +65,18 @@ export interface BrowserFetchProviderOptions extends BrowserPoolOptions {
    * Defaults to 1500. Set to `0` to skip.
    */
   readonly settleMs?: number
+  /**
+   * Extra budget for a grid that has not been filled yet, in milliseconds.
+   * Defaults to {@link DEFAULT_FILL_WAIT_MS}; `0` reads the DOM immediately
+   * after the settle.
+   *
+   * A page whose tables are already populated pays nothing: the check is one
+   * pass over the DOM and it stops there. Only a page still showing an
+   * unfilled table waits, in {@link FILL_POLL_MS} steps, and it stops early
+   * both when the data lands and when the DOM stops changing — a grid that
+   * never fills costs one extra poll, not the whole budget.
+   */
+  readonly fillWaitMs?: number
   /** Playwright `waitUntil` for navigation. Defaults to `'domcontentloaded'`. */
   readonly waitUntil?: 'load' | 'domcontentloaded' | 'networkidle'
   /**
@@ -136,7 +165,7 @@ export class BrowserFetchProvider implements WebFetchProvider {
         const settle = this.options.settleMs ?? 1500
         if (settle > 0) await page.waitForTimeout(settle)
 
-        const html = await page.content()
+        const html = await this.awaitFilledTables(page)
         const cleaned = this.options.clean === false
           ? html
           : cleanPageHtml(html, this.options.clean === true || this.options.clean === undefined ? {} : this.options.clean)
@@ -180,6 +209,32 @@ export class BrowserFetchProvider implements WebFetchProvider {
         cause: error,
       })
     }
+  }
+
+  /**
+   * Read the DOM, then keep waiting while it still shows an unfilled table.
+   *
+   * The settle delay is a guess about XHR latency and 1,500 ms is not always
+   * enough; this replaces the guess with the thing actually being waited for.
+   * Two exits keep it cheap: the table fills, or the DOM stops changing — a
+   * grid that is going to stay empty should not cost the whole budget.
+   */
+  private async awaitFilledTables(page: BrowserPage): Promise<string> {
+    const budget = this.options.fillWaitMs ?? DEFAULT_FILL_WAIT_MS
+    const html = await page.content()
+    if (budget <= 0) return html
+    if (contentSignals(html).unfilledTableCount === 0) return html
+
+    const until = Date.now() + budget
+    let current = html
+    while (Date.now() < until) {
+      await page.waitForTimeout(FILL_POLL_MS)
+      const next = await page.content()
+      if (next === current) break
+      current = next
+      if (contentSignals(current).unfilledTableCount === 0) break
+    }
+    return current
   }
 
   /**

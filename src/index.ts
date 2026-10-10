@@ -118,14 +118,19 @@ export {
   BrowserFetchProvider,
   BROWSER_FETCH_PROVIDER_ID,
   DEFAULT_BROWSER_BODY_CHARS,
+  DEFAULT_FILL_WAIT_MS,
+  FILL_POLL_MS,
   type BrowserFetchProviderOptions,
 } from './browser/fetch-provider.js'
 
 // --- fetch fallback --------------------------------------------------------
 export {
+  cellText,
   contentSignals,
+  isPlaceholderCell,
   withRenderFallback,
-  DEFAULT_ROW_WEIGHT,
+  DEFAULT_CELL_WEIGHT,
+  DEFAULT_MIN_PLACEHOLDER_CELLS,
   type ContentSignals,
   type RenderDecision,
   type RenderFallbackOptions,

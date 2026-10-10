@@ -16,12 +16,12 @@ what was changed.
 
 ```sh
 # from the packed tarball (single machine, no registry)
-npm install ./dsh-web-kit-0.6.0.tgz
+npm install ./dsh-web-kit-0.8.0.tgz
 
 # or drop the folder in and link it
 npm install /path/to/dsh-web-kit
 
-# optional: enables the browser backend (Baidu). Uses Edge/Chrome if installed.
+# optional: enables browser rendering. Uses Edge/Chrome if installed.
 npm install playwright
 ```
 
@@ -30,7 +30,7 @@ without it everything still works, you just lose the browser backend. Building
 the tarball yourself:
 
 ```sh
-npm install && npm run build && npm pack   # -> dsh-web-kit-0.6.0.tgz
+npm install && npm run build && npm pack   # -> dsh-web-kit-0.8.0.tgz
 ```
 
 ---
@@ -438,8 +438,10 @@ web first and your own archive second.
 - *Genuine client rendering — now handled.* Pages that build their content from
   XHR responses arrive as a shell with no data in it. Since 0.7.0 the kit
   renders those in a browser automatically and keeps the result **only when it
-  is better**. See [Render assist](#render-assist-when-the-page-is-a-shell)
-  below.
+  is better**. Since 0.8.0 the shell test also catches a grid that ships *with*
+  rows whose cells are all placeholders — the case 0.7.x missed — and waits for
+  the XHR that fills it. See
+  [Render assist](#render-assist-when-the-page-is-a-shell) below.
 - *Genuine client rendering that rendering cannot fix.* Douyin's hot list and
   Excalidraw return almost nothing even rendered — they answer a browser with
   the same wall they answer a socket with. The kit reports the small body it
@@ -602,18 +604,49 @@ Two of ten render *worse* than their source — a hash-routed SPA and a hydrated
 docs page. A chain that swapped unconditionally would silently destroy working
 pages, so the rendered body has to beat the static one to be used.
 
-The trigger is deliberately blunt and cheap: main text under `1,500` characters,
-or a `<table>` skeleton holding `3` rows or fewer. That threshold sits in the
-empty gap between the clusters above (0–1,401 vs 17,640+). Rows are worth `50`
-characters each in the comparison, because a row of figures is short and
-valuable.
+The trigger is deliberately blunt and cheap: main text under `1,500` characters
+(a threshold that sits in the empty gap between the clusters above, 0–1,401 vs
+17,640+), or a table that looks like it was shipped unfilled. Populated cells are
+worth `12` characters each in the comparison, because a cell of figures is short
+and valuable.
 
-Cost, honestly: a page that triggers costs **2–3 s** instead of **~0.2 s** and
-launches a browser process. Pages that do not trigger are unaffected. Nothing at
-all launches when Playwright is not installed — the chain degrades to plain
-HTTP. `403`/`429`/`503` also retry through the renderer, since challenge pages
-often resolve once JavaScript runs; pass `retryOnStatus: []` if you would rather
-not pay for that.
+**"Unfilled" is measured per table, at cell level.** Two cheaper tests were tried
+first and both miss `www.cngold.org/xhhj/`, which is the page that motivated
+this:
+
+| test | on that page | why it fails |
+|---|---|---|
+| rows exist? | 16 `<tr>` → looks filled | the skeleton ships with rows |
+| any cell in the row has text? | "伦敦黄金" → looks filled | the **name** column is real text; only the prices are `--` |
+| count filled rows across the page | 14 → looks filled | the footer's "recommended reading" table is genuinely full and masks the empty grid beside it |
+
+What actually separates a delivered grid from a skeleton is the cell: a table
+where placeholder cells (empty, `--`, `暂无`, …) outnumber real ones, with at
+least `2` placeholders, has not been populated. Measured on that page: static
+**40 placeholder / 20 data** cells, rendered **4 / 56**. `0.00` is deliberately
+not a placeholder — a flat market prints it, and treating it as one would launch
+a browser on every closed exchange.
+
+A table that is merely *small* is not a skeleton: MDN carries a two-row table
+(a `<th>` header and one real row) and a bare row-count test would render that
+page for nothing, so a table with fewer than `3` rows only counts as unfilled
+when it holds **no** populated cell at all.
+
+**The renderer then waits for the data.** A fixed settle is a guess about XHR
+latency, and 1,500 ms is not always enough: with it, that same page rendered, was
+correctly judged the better body, and still returned a table of `--` with only
+8 of its 40 placeholders filled. The renderer now reads the DOM, and if it still
+shows an unfilled table, keeps waiting — up to `fillWaitMs` (**3,000 ms**) in
+700 ms steps, stopping early when the data lands *or* when the DOM stops
+changing. A page whose tables are already populated pays nothing; a grid that
+will never fill costs one poll, not the whole budget.
+
+Cost, honestly: a page that triggers costs **2.5–4 s** instead of **~0.2 s**
+(the placeholder grid above measured **3,988 ms**) and launches a browser
+process. Pages that do not trigger are unaffected. Nothing at all launches when
+Playwright is not installed — the chain degrades to plain HTTP. `403`/`429`/`503`
+also retry through the renderer, since challenge pages often resolve once
+JavaScript runs; pass `retryOnStatus: []` if you would rather not pay for that.
 
 The rendered DOM is cleaned before it is returned. That is not cosmetic:
 `douyin.com/hot` renders to 799,426 characters, of which **13,702** survive
@@ -622,6 +655,13 @@ conversion window, leaving the model a page title.
 
 A body that came from the browser carries `rendered: true`, so an unexpectedly
 slow fetch can be explained rather than guessed at.
+
+**Breaking in 0.8.0:** `rowWeight` / `DEFAULT_ROW_WEIGHT` are gone. Rows could
+not tell a filled grid from an empty one — a row whose name column is real and
+whose price cells are all `--` is one row either way — so the comparison is now
+`cellWeight` / `DEFAULT_CELL_WEIGHT` (12), counted over populated `<td>` cells.
+`contentSignals` gained `dataCells`, `placeholderCells` and
+`unfilledTableCount`; `rowCount` and `tableCount` are unchanged.
 
 **What render assist cannot do:** the HTTP provider pins validated addresses into
 the connection, so DNS cannot shift between the check and the connect. A browser
@@ -653,7 +693,7 @@ output. `colspan` is still never expanded into invented cells.
 |---|---|---|
 | `search` | `http-first` | `http-first` / `browser-first` / `browser` / `bing-html` / `so360-html` / `searxng` / `ddg-html` / `local-index` / `custom`; pass `false` to register none |
 | `fetch` | see below | partial overrides for the HTTP fetch provider |
-| `render` | on | browser render assist for shell pages; `false` disables; see [Render assist](#render-assist-when-the-page-is-a-shell) |
+| `render` | on | browser render assist for shell pages; `false` disables. Takes `{ settleMs (1500), fillWaitMs (3000), minTextChars (1500), minPlaceholderCells (2), cellWeight (12), waitUntil, waitForSelector, maxBodyChars, clean }`; see [Render assist](#render-assist-when-the-page-is-a-shell) |
 | `disableFetch` | `false` | register no fetch provider |
 | `filter` | `loose` | result filtering options or a level (`'off' \| 'loose' \| 'balanced' \| 'strict'`); pass `false` to disable |
 | `index` | off | `{ dir, extract?, minChars? (200), onlySuccessful? (true) }` enables the local index and caching fetch; `extract` takes `mode: 'full' \| 'gentle' \| 'standard' \| 'aggressive'` |
