@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>IANA — Reserved Domains Policy Reference</title>
+  <style>.sidebar { float: right }</style>
+</head>
+<body>
+  <nav class="breadcrumb"><a href="/">Home</a> / Domains / Reserved</nav>
+
+  <main id="content">
+    <h1>Reserved Domains — Policy Reference</h1>
+
+    <p>The reserved-names policy governs how labels under the root zone are
+      withheld from registration. Administrators should read the whole table
+      below before filing a request; the procedure differs per category.</p>
+
+    <table id="policy-matrix">
+      <caption>Policy categories and their governing documents</caption>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Governing document</th>
+          <th>Renewal window</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Infrastructure</td>
+          <td>
+            <ul>
+              <li>Best Current Practice 32</li>
+              <li>Best Current Practice 16</li>
+            </ul>
+          </td>
+          <td>30 days</td>
+        </tr>
+        <tr>
+          <td>Test labels</td>
+          <td><h4>Reserved for documentation</h4><hr>Not routable in production</td>
+          <td>Never expires</td>
+        </tr>
+        <tr>
+          <td>Country codes</td>
+          <td><blockquote>Delegated only through the ISO 3166 maintenance agency.</blockquote></td>
+          <td>Annual review</td>
+        </tr>
+        <tr>
+          <td>Sponsored</td>
+          <td><pre><code>rfc6761 = -- example reserved
+.example.test.invalid = ok</code></pre></td>
+          <td>60 days</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr><td colspan="3">Total categories: four</td></tr>
+      </tfoot>
+    </table>
+
+    <h2>Escalation</h2>
+    <p>Requests that touch more than one category escalate to the root zone
+      management partner before any delegation is considered.</p>
+
+    <table>
+      <tr><th>Stage</th><th>Actor</th></tr>
+      <tr><td>Intake</td><td>Documentation steward</td></tr>
+      <tr><td>Review</td><td>Root zone partner</td></tr>
+    </table>
+
+    <aside class="related">See also: delegations under the root zone.</aside>
+  </main>
+
+  <footer>Copyright notice and contact route.</footer>
+</body>
+</html>

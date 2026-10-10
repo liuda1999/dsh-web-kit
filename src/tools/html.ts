@@ -10,6 +10,7 @@
 
 import TurndownService from 'turndown'
 import { gfm } from '@joplin/turndown-plugin-gfm'
+import { controlValue } from '../filter/controls.js'
 import type { WebFetchBody } from '../types.js'
 
 const turndown = new TurndownService({
@@ -35,6 +36,28 @@ turndown.addRule('removeNonVisibleContent', {
   },
   replacement() {
     return ''
+  },
+})
+
+/**
+ * Write a form control's value into the Markdown.
+ *
+ * Turndown walks text nodes, and `<input>` has none — its content is a `value`
+ * attribute — so a settings page converted to bare labels with every setting
+ * missing. Sharing `controlValue` with the extractor keeps one policy for what
+ * counts as readable across both paths.
+ */
+turndown.addRule('formControlValue', {
+  filter(node) {
+    return node.nodeName === 'INPUT' || node.nodeName === 'TEXTAREA'
+  },
+  replacement(content, node) {
+    // A textarea already converts its own text node; only the empty ones need
+    // the attribute fallback, which `content` being blank reveals.
+    if (content.trim() !== '') return content
+    const read = (name: string) => node.getAttribute(name)
+    const value = controlValue(read)
+    return value === '' ? '' : ` ${value} `
   },
 })
 
@@ -85,12 +108,97 @@ turndown.addRule('tableRowWithoutSpanExpansion', {
 })
 
 /**
- * Nesting-depth ceiling above which HTML skips conversion and passes through
- * raw. Conversion runs synchronously on the event loop, and unclosed-tag
- * nesting makes the DOM tree (and turndown's walk over it) superlinear —
- * measured upstream: depth 512 ≈ 0.15s, 2,000 ≈ 2s, 20,000 ≈ 5s — during which
- * a cooperative timer cannot fire. A robustness invariant, not a tunable.
+ * Count a table's columns from the DOM, deliberately not expanding `colspan`.
+ *
+ * Matches {@link renderTableCell}: cells are emitted per source cell, so the
+ * count here is the count Markdown will get. A raw-text cell *(below)* emits
+ * pipes that look like columns but are escaped, so counts stay honest.
  */
+function tableColCount(table: HTMLTableElement): number {
+  let max = 0
+  for (const row of Array.from(table.rows)) max = Math.max(max, row.cells.length)
+  return max
+}
+
+/**
+ * Override GFM's `table` rule, whose fallback ruins whole tables.
+ *
+ * The plugin decides a table holding certain block content cannot be Markdown,
+ * and emits `node.outerHTML` — the entire table as raw markup — wrapped in
+ * `<div class="joplin-table-wrapper">`. Reasonable for a note-taking app whose
+ * renderer re-parses HTML; wrong here, where the output goes to a model's
+ * context or a search index and arrives as one opaque blob tagged with a
+ * private class name.
+ *
+ * The cell and row rules above already produce a valid GFM table, so there is
+ * no case left where falling back to source beats a slightly flattened one.
+ */
+/**
+ * Whether any descendant carries this tag name.
+ *
+ * Hand-rolled rather than `querySelector`, because the DOM turndown walks
+ * answers selectors loosely: asking a plain two-cell `<table>` for
+ * `querySelector('table')` returns its own `<tbody>`, and asking a table with no
+ * caption for `querySelector('caption')` returns something too. Every table
+ * therefore looked nested, which silently disabled the whole rule.
+ */
+function hasDescendant(node: unknown, tag: string): boolean {
+  const children = (node as { childNodes?: ArrayLike<unknown> }).childNodes
+  if (children === undefined) return false
+  for (const child of Array.from(children)) {
+    if ((child as { nodeName?: string }).nodeName === tag) return true
+    if (hasDescendant(child, tag)) return true
+  }
+  return false
+}
+
+/**
+ * Text of a direct child by tag name, or `''` when absent.
+ *
+ * `<caption>` is only ever a direct child of `<table>`, so no descent is needed
+ * — which also avoids the mis-selecting described in {@link hasDescendant}.
+ */
+function directChildText(node: unknown, tag: string): string {
+  const children = (node as { childNodes?: ArrayLike<unknown> }).childNodes
+  if (children === undefined) return ''
+  for (const child of Array.from(children)) {
+    if ((child as { nodeName?: string }).nodeName === tag) {
+      return ((child as { textContent?: string }).textContent ?? '').replace(/\s+/g, ' ').trim()
+    }
+  }
+  return ''
+}
+
+/** Matches a GFM column-divider row, whatever alignment marks it carries. */
+const DIVIDER_ROW = /^\s*\|?\s*:?-{3,}:?\s*\|/
+
+turndown.addRule('tableWithoutHtmlFallback', {
+  filter: 'table',
+  replacement(content, node) {
+    const table = node as HTMLTableElement
+    // Nested tables have no Markdown form; the inner table converted itself.
+    if (hasDescendant(table, 'TABLE')) return content
+    // A lone cell is a layout box, not data.
+    if (table.rows.length === 1 && tableColCount(table) <= 1) return content
+
+    const lines = content.replace(/\n+/g, '\n').trim()
+    if (lines === '') return ''
+
+    const rows = lines.split('\n')
+    if (!DIVIDER_ROW.test(rows[1] ?? '')) {
+      // No heading row was authored, and GFM tables require one. Supply a blank
+      // header rather than dropping the table the way the plugin does.
+      const columns = tableColCount(table)
+      if (columns === 0) return content
+      rows.unshift(`|${'     |'.repeat(columns)}`, `|${' --- |'.repeat(columns)}`)
+    }
+
+    // GFM's own caption rule erases the caption from `content`, so read it back
+    // from the document rather than losing it.
+    const caption = directChildText(table, 'CAPTION')
+    return `\n\n${caption !== '' ? `${caption}\n\n` : ''}${rows.join('\n')}\n\n`
+  },
+})
 const MAX_CONVERSION_DEPTH = 512
 
 /** Elements that never take a closing tag, so they do not grow the lexical stack. */

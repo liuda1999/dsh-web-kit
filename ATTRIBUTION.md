@@ -26,7 +26,12 @@ licensed under the **MIT License**.
 | `src/search/ddg-html.ts` | — | **new code**, for the same reason |
 | `src/search/so360-html.ts` | — | **new code**. 360 搜索 (www.so.com) parser. Measured: works for ~5 queries per IP, then throttled. |
 | `src/search/fallback.ts` | — | **new code**. Provider chaining; treats zero results as failure. |
-| `src/search/html-text.ts` | — | **new code**, shared entity decoding for the scraping providers |
+| `src/filter/result-filter.ts` | — | **new code**. Layered filtering: four levels (`off`/`loose`/`balanced`/`strict`), per-rule `keep`/`demote`/`drop` actions, six engine self-link entries (host + path), quality scoring used for ordering rather than removal, and a `withFilter` decorator. |
+| `src/filter/extract.ts` | — | **new code**. Density heuristic for article extraction, in the spirit of Readability, with four modes (`full`/`gentle`/`standard`/`aggressive`) separating declared chrome from inferred chrome, plus a `maxLossRatio` guard that abandons cropping rather than risk discarding the article. |
+| `src/local/store.ts` | — | **new code**. Filesystem document store backing the local index. |
+| `src/local/bm25.ts` | — | **new code**. BM25 with dictionary-free Chinese bigram tokenisation. |
+| `src/local/provider.ts` | — | **new code**. `LocalIndexSearchProvider` over the store. |
+| `src/local/caching-fetch.ts` | — | **new code**. Fetch decorator that indexes what it reads. |
 
 ### Engines evaluated and rejected
 

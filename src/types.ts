@@ -93,4 +93,20 @@ export interface WebFetchProvider {
  * `WEB_FETCH_TOO_LARGE`, `WEB_FETCH_TIMEOUT`, `WEB_UNSUPPORTED_CONTENT_TYPE`,
  * `WEB_PROVIDER_ERROR`.
  */
+/**
+ * Read and validate the query on a search request.
+ *
+ * Every provider needs this, and none should invent its own rule, because the
+ * failure it prevents is quiet rather than loud. `searchParams.set('q', x)`
+ * coerces `undefined` to the string `"undefined"`, so a caller who passes the
+ * wrong field name (the tool-level shape is `{ queries: [] }`, the provider
+ * shape is `{ query: '' }`) receives a full page of well-formed results about
+ * JavaScript's `undefined` — and no error saying the request was wrong.
+ */
+export function readSearchQuery(request: WebSearchRequest, scope = 'web search'): string {
+  const query = typeof request.query === 'string' ? request.query.trim() : ''
+  if (query.length === 0) throw new WebError(`${scope} query is empty`, 'WEB_PROVIDER_ERROR')
+  return query
+}
+
 export class WebError extends HarnessError {}

@@ -25,7 +25,7 @@
  */
 
 import type { Dispatcher } from 'undici'
-import { WebError } from '../types.js'
+import { readSearchQuery, WebError } from '../types.js'
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult, WebSearchSource } from '../types.js'
 import { deadline, timeoutOf } from '../timeout.js'
 
@@ -110,9 +110,10 @@ export class SearxngSearchProvider implements WebSearchProvider {
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     if (signal?.aborted) throw new WebError('web search aborted', 'WEB_ABORTED')
+    const query = readSearchQuery(request)
 
     const url = new URL('/search', this.options.baseUrl)
-    url.searchParams.set('q', request.query)
+    url.searchParams.set('q', query)
     url.searchParams.set('format', 'json')
     url.searchParams.set('language', this.options.language ?? 'all')
     url.searchParams.set('safesearch', String(this.options.safeSearch ?? 0))

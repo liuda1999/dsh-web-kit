@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inference server parameters</title>
+  <script>var trackingPixel = { id: "REF-PAGE", categories: ["docs", "reference"] };</script>
+  <style>.ad-container { display: block; }</style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/docs">Docs</a> <a href="/api">API</a> <a href="/blog">Blog</a> <a href="/changelog">Changelog</a>
+  </nav>
+
+  <div class="ad-slot">Sponsored placement buy our managed hosting today</div>
+
+  <main>
+    <article>
+      <h1>Inference server parameters</h1>
+      <p class="lead">Every runtime parameter accepted by the completion endpoint, with the value range enforced by the validator.</p>
+
+      <h2 id="sampling">Sampling</h2>
+      <dl>
+        <dt>temperature</dt>
+        <dd>Scales the logits before softmax. Higher values flatten the distribution.</dd>
+        <dt>top_p</dt>
+        <dd>Nucleus sampling cutoff applied after temperature scaling.</dd>
+      </dl>
+
+      <h2 id="limits">Limits</h2>
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Enforced range</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>temperature</td><td>float</td><td>0.7</td><td>0.0 to 2.0</td></tr>
+          <tr><td>top_p</td><td>float</td><td>0.95</td><td>0.0 to 1.0</td></tr>
+          <tr><td>max_tokens</td><td>integer</td><td>4096</td><td>1 to 131072</td></tr>
+          <tr><td>frequency_penalty</td><td>float</td><td>0.0</td><td>-2.0 to 2.0</td></tr>
+          <tr><td>presence_penalty</td><td>float</td><td>0.0</td><td>-2.0 to 2.0</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4">A value outside these ranges returns HTTP 400 before scheduling.</td></tr>
+        </tfoot>
+      </table>
+
+      <h2 id="example">Request</h2>
+      <pre><code>curl https://api.example.com/v1/complete \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"max_tokens": 4096, "temperature": 0.2}'</code></pre>
+
+      <details>
+        <summary>Why the range is narrower than the model's</summary>
+        <p>The scheduler reserves headroom for the KV cache, so the advertised window exceeds what one request may claim.</p>
+      </details>
+
+      <p>Parameters are validated before the request reaches the scheduler.</p>
+    </article>
+  </main>
+
+  <aside class="sidebar">Related reading: tuning latency, choosing quantisation</aside>
+  <footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>

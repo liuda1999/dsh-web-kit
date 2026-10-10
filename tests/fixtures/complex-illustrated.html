@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>How the ingest pipeline drains</title>
+</head>
+<body>
+  <nav class="topbar">Docs API Reference Blog Changelog Pricing Support Login</nav>
+
+  <main>
+    <article>
+      <h1>How the ingest pipeline drains</h1>
+      <p>The drain loop pulls work items in batches and hands each batch to a worker chosen round robin from the pool. A batch is only acknowledged once every item in it has been written.</p>
+
+      <figure>
+        <picture>
+          <source srcset="/diagram.webp" type="image/webp">
+          <img src="/diagram.png" alt="Pipeline with three worker lanes draining one bounded queue">
+        </picture>
+        <figcaption>Figure 1: three worker lanes draining one bounded queue.</figcaption>
+      </figure>
+
+      <p>Because each batch carries a checksum, a partially written batch is discarded rather than retried, which keeps the write path idempotent end to end.</p>
+
+      <figure>
+        <svg viewBox="0 0 420 90" role="img" aria-label="Stage diagram">
+          <rect x="5" y="10" width="120" height="40" fill="#eee"></rect>
+          <text x="20" y="35">IngestStage</text>
+          <rect x="150" y="10" width="120" height="40" fill="#eee"></rect>
+          <text x="165" y="35">BatchStage</text>
+          <rect x="295" y="10" width="120" height="40" fill="#eee"></rect>
+          <text x="310" y="35">DrainStage</text>
+        </svg>
+        <figcaption>Figure 2: the three stages and the order they run in.</figcaption>
+      </figure>
+
+      <p>Backpressure engages when the queue depth exceeds twice the configured batch size, at which point producers block until the depth falls back below the watermark.</p>
+
+      <figure>
+        <img src="/retry.png" alt="Retry ladder with exponential backoff and jitter">
+        <figcaption>Figure 3: exponential backoff with jitter on retry.</figcaption>
+      </figure>
+
+      <p>The retry ladder is bounded: after six attempts the item is moved to a dead letter queue and an operator alert is raised.</p>
+    </article>
+  </main>
+
+  <aside>Recommended reading: idempotency keys, dead letter queues</aside>
+  <footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>

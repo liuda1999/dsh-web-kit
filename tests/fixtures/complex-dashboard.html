@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fleet overview</title>
+</head>
+<body>
+  <nav class="topbar">Fleet Nodes Alerts Settings Account</nav>
+
+  <main id="dashboard">
+    <h1>Fleet overview</h1>
+
+    <section class="metrics">
+      <div class="metric-card"><span class="value">128</span><span class="label">Nodes reporting</span></div>
+      <div class="metric-card"><span class="value">3</span><span class="label">Nodes degraded</span></div>
+      <div class="metric-card"><span class="value">99.2%</span><span class="label">Availability 24h</span></div>
+      <div class="metric-card"><span class="value">41ms</span><span class="label">p95 latency</span></div>
+    </section>
+
+    <section class="alerts">
+      <h2>Open alerts</h2>
+      <table>
+        <thead><tr><th>Severity</th><th>Node</th><th>Opened</th><th>Summary</th></tr></thead>
+        <tbody>
+          <tr><td>critical</td><td>node-07</td><td>04:12</td><td>Disk pressure above ninety percent and climbing</td></tr>
+          <tr><td>warning</td><td>node-31</td><td>03:40</td><td>Replicating lag exceeds thirty seconds</td></tr>
+          <tr><td>warning</td><td>node-52</td><td>02:58</td><td>Certificate expires in nine days</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="activity">
+      <h2>Recent activity</h2>
+      <ul>
+        <li>Operator rotated the upstream certificate on node-07.</li>
+        <li>Scheduler rebalanced four shards away from node-31.</li>
+        <li>Backup snapshot completed in eleven minutes.</li>
+        <li>Autoscaler added two nodes to pool bravo.</li>
+      </ul>
+    </section>
+
+    <section class="notes">
+      <h2>Runbook notes</h2>
+      <p>Escalate any critical alert older than thirty minutes to the on-call rotation rather than attempting manual recovery first.</p>
+      <p>Node certificates are rotated automatically, but nodes that miss two consecutive rotations need a manual restart.</p>
+    </section>
+  </main>
+
+  <footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>

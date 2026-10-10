@@ -11,14 +11,17 @@
  * This script makes that failure loud. Exit code 1 means the default backend
  * is not producing usable results right now.
  *
- * Required checks: fetch, and the default search backend (bing-html).
- * Informational: ddg-html, searxng (reported, never fatal).
+ * Required checks: fetch, and whatever `createWebKit()` actually selects by
+ * default (currently scrape-Bing over HTTP with a browser chain behind it, so a
+ * machine without Playwright still passes as long as HTTP works).
+ * Informational: each individual backend, so you can see which half is healthy.
  */
 
 import {
   BingHtmlSearchProvider,
+  BrowserSearchProvider,
+  createWebKit,
   DdgHtmlSearchProvider,
-  DEFAULT_SEARCH_BACKEND,
   HttpFetchProvider,
   DEFAULT_FETCH_LIMITS,
   SEARXNG_DEFAULT_BASE_URL,
@@ -32,7 +35,7 @@ const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL ?? SEARXNG_DEFAULT_BASE_UR
 /** Below this, a scraper is presumed broken rather than "no results found". */
 const MIN_EXPECTED_RESULTS = 3
 
-const REQUIRED = new Set(['fetch', 'bing-html'])
+const REQUIRED = new Set(['fetch', 'default'])
 const rows = []
 
 function record(name, status, detail) {
@@ -103,11 +106,53 @@ async function checkSearch(name, provider) {
   }
 }
 
-const activeBackend = DEFAULT_SEARCH_BACKEND.kind
-if (activeBackend === 'bing-html') {
-  await checkSearch('bing-html', new BingHtmlSearchProvider({}))
-} else {
-  record('bing-html', 'warn', `not the default backend (default is ${activeBackend}); skipped`)
+// --- what createWebKit() actually selects, end to end ----------------------
+{
+  const kit = createWebKit()
+  const id = kit.web.listSearchProviders()[0] ?? '?'
+  const { value, error, ms } = await timed(() => kit.web.search({ query: QUERY, maxResults: 10 }))
+  if (error) {
+    record('default', 'fail', `${id}: ${describe(error)} after ${ms}ms`)
+  } else {
+    const detail = `${id}: ${qualityOf(value.sources)}, ${ms}ms`
+    if (value.sources.length < MIN_EXPECTED_RESULTS) {
+      record('default', 'fail', `${detail} — expected >=${MIN_EXPECTED_RESULTS}`)
+    } else if (!value.sources[0]?.title || !value.sources[0]?.snippet) {
+      record('default', 'warn', `${detail} — parse is degrading`)
+    } else {
+      record('default', 'ok', detail)
+    }
+  }
+  await kit.dispose()
+}
+
+// --- the individual backends -----------------------------------------------
+await checkSearch('bing-html', new BingHtmlSearchProvider({}))
+
+{
+  const provider = new BrowserSearchProvider({ engine: 'bing', timeoutMs: 60_000 })
+  const { value, error, ms } = await timed(() => provider.search({ query: QUERY, maxResults: 10 }))
+  await provider.dispose()
+  if (error) {
+    const missing = /playwright/.test(error?.message ?? '')
+    record('browser:bing', 'warn', missing
+      ? `playwright not installed — the default chain falls back to HTTP (npm install playwright to enable)`
+      : `${describe(error)} after ${ms}ms`)
+  } else {
+    record('browser:bing', value.sources.length >= MIN_EXPECTED_RESULTS ? 'ok' : 'fail',
+      `${qualityOf(value.sources)}, ${ms}ms`)
+  }
+}
+
+{
+  const provider = new BrowserSearchProvider({ engine: 'baidu', timeoutMs: 60_000 })
+  const { value, error, ms } = await timed(() => provider.search({ query: QUERY, maxResults: 10 }))
+  await provider.dispose()
+  if (error) {
+    record('browser:baidu', 'warn', `${describe(error)} after ${ms}ms — Baidu is the reason the browser backend exists; not fatal`)
+  } else {
+    record('browser:baidu', value.sources.length > 0 ? 'ok' : 'warn', `${qualityOf(value.sources)}, ${ms}ms`)
+  }
 }
 
 // --- so360 (domestic fallback; throttles hard) -----------------------------

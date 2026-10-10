@@ -36,8 +36,22 @@ export function withFallback(...providers: readonly WebSearchProvider[]): WebSea
     throw new WebError('withFallback requires at least one provider', 'WEB_PROVIDER_ERROR')
   }
 
-  return {
+  // Declared with a wider type so the chain exposes its children: kit disposal
+  // walks the graph to close browser processes the chain owns.
+  const composite: WebSearchProvider & {
+    readonly providers: readonly WebSearchProvider[]
+    readonly dispose: () => Promise<void>
+  } = {
     id: providers[0]?.id ?? 'fallback',
+    providers,
+    dispose: async () => {
+      for (const provider of providers) {
+        const disposable = provider as unknown as { dispose?: () => Promise<void> }
+        if (typeof disposable.dispose === 'function') {
+          await disposable.dispose().catch(() => undefined)
+        }
+      }
+    },
     available(): boolean {
       return providers.some(provider => provider.available())
     },
@@ -65,6 +79,7 @@ export function withFallback(...providers: readonly WebSearchProvider[]): WebSea
       })
     },
   }
+  return composite
 }
 
 /** Build the error message for a chain where nothing worked. */

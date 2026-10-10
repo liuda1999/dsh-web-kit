@@ -22,7 +22,7 @@
  */
 
 import type { Dispatcher } from 'undici'
-import { WebError } from '../types.js'
+import { readSearchQuery, WebError } from '../types.js'
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult, WebSearchSource } from '../types.js'
 import { deadline, timeoutOf } from '../timeout.js'
 import { decodeEntities } from './html-text.js'
@@ -137,9 +137,10 @@ export class DdgHtmlSearchProvider implements WebSearchProvider {
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     if (signal?.aborted) throw new WebError('web search aborted', 'WEB_ABORTED')
+    const query = readSearchQuery(request)
 
     const endpoint = this.options.endpoint ?? DDG_HTML_ENDPOINT
-    const body = new URLSearchParams({ q: request.query })
+    const body = new URLSearchParams({ q: query })
     if (this.options.region !== undefined) body.set('kl', this.options.region)
 
     const d = deadline(signal, this.options.timeoutMs ?? 30_000, 'WEB_SEARCH_TIMEOUT')

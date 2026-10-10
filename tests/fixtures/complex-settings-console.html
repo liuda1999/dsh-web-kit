@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Daemon settings reference</title>
+</head>
+<body>
+  <nav class="topbar">Overview Settings Diagnostics Logs Backup</nav>
+
+  <main>
+    <h1>Daemon settings reference</h1>
+    <p>Every knob exposed by the daemon, with the token convention used inside the configuration file.</p>
+
+    <form action="/settings" method="post">
+      <input type="hidden" name="csrf_token" value="8f14e45fceea167a5a36dedd4bea2543">
+      <input type="hidden" name="revision" value="7719">
+
+      <fieldset>
+        <legend>Network</legend>
+
+        <label for="bind_host">Bind host</label>
+        <input id="bind_host" name="bind_host" value="127.0.0.1">
+
+        <label for="port">Port</label>
+        <input id="port" name="port" value="8080">
+
+        <label for="tls_mode">TLS mode</label>
+        <select id="tls_mode" name="tls_mode">
+          <option selected>disabled</option>
+          <option>self-signed</option>
+          <option>acme</option>
+        </select>
+
+        <label for="upstream">Upstream</label>
+        <input id="upstream" name="upstream" placeholder="https://upstream.example.com">
+      </fieldset>
+
+      <fieldset>
+        <legend>Scheduling</legend>
+
+        <label for="mode">Mode</label>
+        <select id="mode" name="mode">
+          <option>balanced</option>
+          <option selected>throughput</option>
+          <option>latency</option>
+        </select>
+
+        <label for="worker_threads">Worker threads</label>
+        <input id="worker_threads" name="worker_threads" value="16">
+
+        <input type="checkbox" id="prefetch" name="prefetch" checked>
+        <label for="prefetch">Prefetch batches ahead of demand</label>
+
+        <label for="api_key">API key</label>
+        <input type="password" id="api_key" name="api_key" value="super-secret-value">
+
+        <label for="notes">Operator notes</label>
+        <textarea id="notes" name="notes" rows="4">Rotated the upstream certificate on 2026-09-30.</textarea>
+      </fieldset>
+
+      <button type="submit">Save changes</button>
+      <button type="reset">Discard</button>
+    </form>
+
+    <p>Saving writes the configuration file atomically, so a crash mid-write leaves the previous file intact.</p>
+  </main>
+
+  <footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>

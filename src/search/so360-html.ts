@@ -22,7 +22,7 @@
  */
 
 import type { Dispatcher } from 'undici'
-import { WebError } from '../types.js'
+import { readSearchQuery, WebError } from '../types.js'
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult, WebSearchSource } from '../types.js'
 import { deadline, timeoutOf } from '../timeout.js'
 import { decodeEntities, stripTags } from './html-text.js'
@@ -127,9 +127,10 @@ export class So360HtmlSearchProvider implements WebSearchProvider {
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     if (signal?.aborted) throw new WebError('web search aborted', 'WEB_ABORTED')
+    const query = readSearchQuery(request)
 
     const url = new URL(this.options.endpoint ?? SO360_HTML_ENDPOINT)
-    url.searchParams.set('q', request.query)
+    url.searchParams.set('q', query)
 
     const d = deadline(signal, this.options.timeoutMs ?? 30_000, 'WEB_SEARCH_TIMEOUT')
     try {

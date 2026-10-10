@@ -239,15 +239,23 @@ test('fetch tool: rejects an empty url without touching the network', async () =
   assert.match(out.text, /url must be a non-empty string/)
 })
 
-test('kit: createWebKit wires providers and tools', () => {
+test('kit: createWebKit wires providers and tools', async () => {
   const kit = createWebKit()
   assert.deepEqual(kit.web.listFetchProviders(), ['http'])
   // Zero config must give a working free backend, or the default is a trap.
-  assert.deepEqual(kit.web.listSearchProviders(), [DEFAULT_SEARCH_BACKEND.kind])
+  // The default is a fallback chain, which reports its primary's id.
+  assert.deepEqual(kit.web.listSearchProviders().length, 1)
+  // The default is `http-first`: scrape-Bing over HTTP with a browser behind it.
+  // A composite reports its primary's id, so this is 'bing-html', not 'browser:*'.
+  // Asserting the id pins the ordering decision — the browser path costs ~37×
+  // more for no better answer, and silently swapping it back in is a regression.
+  assert.equal(kit.web.listSearchProviders()[0], 'bing-html')
   assert.deepEqual(kit.tools.map(t => t.name), ['web_search', 'web_fetch'])
+  await kit.dispose()
 
   const bare = createWebKit({ search: false })
   assert.deepEqual(bare.web.listSearchProviders(), [])
+  await bare.dispose()
 })
 
 test('fetch: real network fetch of a public page', async (t) => {

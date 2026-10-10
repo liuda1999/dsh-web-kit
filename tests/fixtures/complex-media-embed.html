@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Layout primitives</title>
+</head>
+<body>
+  <nav class="topbar">Guides Reference Samples playground Blog</nav>
+
+  <main>
+    <article>
+      <h1>Layout primitives</h1>
+      <p>The grid below is a live sample you can resize in place by dragging the divider between the two columns.</p>
+
+      <iframe src="/samples/grid" title="Resizable two column grid sample" width="100%" height="320"></iframe>
+
+      <p>To reproduce the sample, declare two explicit columns and let remaining items flow into the implicit row.</p>
+
+      <h2>Walkthrough</h2>
+      <video src="/intro.mp4" controls width="640">
+        <track kind="captions" src="/intro.en.vtt" label="English captions">
+        <track kind="captions" src="/intro.zh.vtt" label="Chinese captions">
+      </video>
+
+      <p>The recording walks through the same declarations step by step, starting from an unstyled list.</p>
+
+      <h2>Fallback</h2>
+      <canvas id="preview" width="400" height="120">Your browser does not support the canvas preview.</canvas>
+
+      <p>The fallback text above is what a non-supporting reader sees, and it is real content rather than decoration.</p>
+    </article>
+  </main>
+
+  <footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>
