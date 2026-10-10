@@ -427,12 +427,19 @@ asserted in both directions in `tests/index-options.test.mjs`.
 You can also compose it: `withFallback(liveProvider, kit.index)` searches the
 web first and your own archive second.
 
-**Known boundary:** pages that render their body in the browser (MDN, portals
-built on a `<div id="root">`) still arrive as source HTML, because the browser
-backend covers *search* and not *fetch*. You get what the static HTML carries —
-the nav, titles, and any server-rendered prose — and nothing crashes. If you
-need rendered content, the route is a browser-backed fetch provider, which this
-kit does not ship yet.
+**Known boundary — two different limits that look identical:**
+
+- *Truncation, not rendering.* `maxBodyChars` defaults to 100,000, which cuts
+  the tail off large documents, and the tail is usually where the prose is.
+  Raise it and the "SPA" mostly disappears: MDN goes from **168 → 2,790**
+  chars, NetEase Music from **3,291 → 119,504**. An earlier version of this
+  README blamed client rendering for what was the body cap — measured, wrong,
+  corrected. See [SPA-PROBE.md](SPA-PROBE.md).
+- *Genuine client rendering.* Pages shipping an empty shell (Douyin's hot list,
+  Excalidraw) return **0 chars at any cap**; the HTML has no content until a
+  browser runs the scripts. The browser backend covers *search*, not *fetch*, so
+  this kit cannot read those yet. What it can still do: the bootstrap JSON many
+  of them embed is readable from the raw HTML — see the probe report.
 
 ---
 

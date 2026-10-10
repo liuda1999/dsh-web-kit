@@ -55,7 +55,7 @@ keep  https://zhuanlan.zhihu.com/p/28554133163
 |---|---|---|---|
 | 1 | GFM 对含列表/标题/`<hr>` 单元格的表格**整块输出 HTML 源码**，并裹一层 `joplin-table-wrapper` | 自研 `table` 规则替代 GFM 的 HTML 回退 | `src/tools/html.ts` |
 | 2 | `minChars` / `onlySuccessful` 无法经 `createWebKit` 透传，200 字符下限成为隐藏契约 | `WebKitOptions.index` 现在转发 | `src/index.ts` |
-| 3 | SPA 页（MDN 等）静态抓取拿不到正文 | 浏览器后端只做搜索不做抓取，结构性限制；已固化为受测契约 | — |
+| 3 | SPA 页（MDN 等）静态抓取拿不到正文 | **结论已被后续实测证伪**：真因是默认 `maxBodyChars` 100k 截断，不是客户端渲染。MDN 提到 1M 后 168 → 2,790。真空壳页（抖音）仍需浏览器抓取，见 [SPA-PROBE.md](SPA-PROBE.md) | — |
 
 修表格时自己引入的回归：`domino` 的 `querySelector` **不做标签名过滤**，无嵌套表格也返回非空值，导致我的规则每次提前 `return content`，把表头补齐和 caption 全废掉。改用 `getElementsByTagName` 后才真正生效。
 
@@ -119,7 +119,7 @@ keep  https://zhuanlan.zhihu.com/p/28554133163
 | 1990 年代古早 HTML | 1,018，探针 `bibliography` |
 | 表格密集型（IANA） | 2,309，探针 `policy-reserved` |
 | 超大文档·截断（nodejs api/fs） | 15,306，探针 `mkdtempdisposablesync` |
-| JS 渲染型文档站（MDN） | 176，SPA 降级 |
+| JS 渲染型文档站（MDN） | 176 —— 由默认 100k 截断造成，非 SPA 降级；1M 上限下为 2,790 |
 | 表单页面 | 276，探针 `instructions` |
 | JSON 接口 | 313，探针 `slideshow` |
 | 表格+代码块混合（Python 文档） | 12,244，探针 `floating-point` |
@@ -154,7 +154,14 @@ PASS — 8 checks, 0 required failure(s)
 
 ## 六、未修的一项
 
-**SPA 页（MDN 等）静态抓取仍拿不到正文**：10 万字符 HTML → 176 字符正文。浏览器后端只做搜索、不做抓取，属结构性限制。已写成受测契约，日后若接入浏览器抓取，该测试会变红提醒更新而非悄悄漂走。要解决需让浏览器后端同时承担 `WebFetchProvider`，改动较大，等您拍板。
+**SPA 页（MDN 等）静态抓取拿不到正文 —— 该结论已作废。** 10 万字符 HTML →
+176 字符正文，当时归因为"客户端渲染，结构性限制"。后续用 1M 上限重测：MDN
+**168 → 2,790**、网易云音乐 **3,291 → 119,504**、豆瓣 9,768。真正的变量是
+`maxBodyChars` 默认值把文档尾部（正文所在处）切掉了，不是渲染方式。
+
+仍然成立的部分：纯客户端渲染且不带内嵌数据的页面（抖音热榜 0 字符、
+Excalidraw 21 字符）在任何上限下都拿不到，这需要浏览器抓取；浏览器后端目前
+只做搜索、不做抓取。详见 [SPA-PROBE.md](SPA-PROBE.md)。
 
 ---
 
