@@ -44,7 +44,7 @@ export const LOCAL_FETCH_PROVIDER_ID = 'http'
 /** Default limits, matching the shipped DeepSeek Harness plugin defaults. */
 export const DEFAULT_FETCH_LIMITS: HttpFetchLimits = {
   maxResponseBytes: 5_000_000,
-  maxBodyChars: 100_000,
+  maxBodyChars: 300_000,
   timeoutMs: 30_000,
   maxRedirects: 5,
   userAgent: 'dsh-web-kit/0.1',

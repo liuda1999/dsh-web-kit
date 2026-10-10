@@ -203,7 +203,7 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /** Classify a thrown value as cancellation, timeout, or provider failure. */
-function translateBrowserError(error: unknown, signal: AbortSignal, engineId: string): WebError {
+export function translateBrowserError(error: unknown, signal: AbortSignal, engineId: string): WebError {
   if (error instanceof WebError) return error
   if (timeoutOf(signal, 'WEB_SEARCH_TIMEOUT') !== undefined) {
     return new WebError('browser web search timed out', 'WEB_SEARCH_TIMEOUT', { cause: error })

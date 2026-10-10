@@ -145,6 +145,11 @@ export const WEB_FETCH_OUTPUT_SCHEMA: JsonSchema = {
       ],
     },
     truncated: { type: 'boolean' },
+    /**
+     * Present and true when the body came from a browser rather than the
+     * static response. Not required: providers without a renderer never set it.
+     */
+    rendered: { type: 'boolean' },
   },
   required: ['url', 'statusCode', 'body', 'truncated'],
 }
@@ -214,6 +219,7 @@ export function createWebFetchTool(options: WebFetchToolOptions): ToolDefinition
           statusCode: result.statusCode,
           body: { kind: result.body.kind, content: result.body.content },
           truncated: result.truncated,
+          ...result.rendered === true ? { rendered: true } : {},
         }
         const meta: WebFetchMeta = fetchMetaFromValue(result, maxOutputChars)
         return { text: formatFetchOutput(result, maxOutputChars), isError: false, value, meta }

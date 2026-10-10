@@ -56,6 +56,12 @@ export interface WebFetchResult {
   readonly body: WebFetchBody
   /** True when the provider capped the decoded body. */
   readonly truncated: boolean
+  /**
+   * True when this body came from the renderer of a fallback chain rather than
+   * from the static HTTP response. Useful when a fetch unexpectedly costs
+   * seconds: it means a browser was launched.
+   */
+  readonly rendered?: boolean
 }
 
 /**

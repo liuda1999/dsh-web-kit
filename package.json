@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-kit",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Standalone web_search / web_fetch capability extracted from DeepSeek Harness (deepseek-harness). Cordis-free, framework-neutral tool definitions, and search providers that need no third-party API key.",
   "type": "module",
   "main": "dist/index.js",

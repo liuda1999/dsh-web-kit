@@ -427,19 +427,23 @@ asserted in both directions in `tests/index-options.test.mjs`.
 You can also compose it: `withFallback(liveProvider, kit.index)` searches the
 web first and your own archive second.
 
-**Known boundary — two different limits that look identical:**
+**Three different limits that look identical:**
 
-- *Truncation, not rendering.* `maxBodyChars` defaults to 100,000, which cuts
-  the tail off large documents, and the tail is usually where the prose is.
-  Raise it and the "SPA" mostly disappears: MDN goes from **168 → 2,790**
-  chars, NetEase Music from **3,291 → 119,504**. An earlier version of this
-  README blamed client rendering for what was the body cap — measured, wrong,
-  corrected. See [SPA-PROBE.md](SPA-PROBE.md).
-- *Genuine client rendering.* Pages shipping an empty shell (Douyin's hot list,
-  Excalidraw) return **0 chars at any cap**; the HTML has no content until a
-  browser runs the scripts. The browser backend covers *search*, not *fetch*, so
-  this kit cannot read those yet. What it can still do: the bootstrap JSON many
-  of them embed is readable from the raw HTML — see the probe report.
+- *Truncation, not rendering.* `maxBodyChars` used to default to 100,000, which
+  cut the tail off large documents — and the tail is usually where the prose is.
+  Raise it and the "SPA" mostly disappears: MDN goes from **168 → 2,790** chars,
+  NetEase Music from **3,291 → 119,504**. An earlier version of this README
+  blamed client rendering for what was the body cap — measured, wrong,
+  corrected. The default is now **300,000**. See [SPA-PROBE.md](SPA-PROBE.md).
+- *Genuine client rendering — now handled.* Pages that build their content from
+  XHR responses arrive as a shell with no data in it. Since 0.7.0 the kit
+  renders those in a browser automatically and keeps the result **only when it
+  is better**. See [Render assist](#render-assist-when-the-page-is-a-shell)
+  below.
+- *Genuine client rendering that rendering cannot fix.* Douyin's hot list and
+  Excalidraw return almost nothing even rendered — they answer a browser with
+  the same wall they answer a socket with. The kit reports the small body it
+  got rather than pretending.
 
 ---
 
@@ -558,7 +562,7 @@ The HTTP fetch provider is the upstream one, unchanged in behaviour:
 - Only HTTP(S); credentials in URLs are refused.
 - Same-origin redirects only, capped; cross-origin redirects are reported, not
   followed.
-- Byte cap (`5 MB`) and decoded-character cap (`100k`), with `truncated` set.
+- Byte cap (`5 MB`) and decoded-character cap (`300k`), with `truncated` set.
 - Content-Type classification; unknown charset fails loudly rather than
   producing mojibake.
 - Proxy support via `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`.
@@ -566,6 +570,54 @@ The HTTP fetch provider is the upstream one, unchanged in behaviour:
 ```ts
 createWebKit({ fetch: { timeoutMs: 15_000, maxBodyChars: 50_000 } })
 ```
+
+### Render assist: when the page is a shell
+
+On by default. HTTP fetches first; when the static body looks unfilled, the page
+is rendered in a real browser — and the rendered DOM is kept **only if it scores
+higher than what HTTP already returned**.
+
+```ts
+createWebKit()                        // render assist on
+createWebKit({ render: false })       // HTTP only, never launch a browser
+createWebKit({ render: { settleMs: 3000, minTextChars: 800 } })
+```
+
+Why it compares instead of just rendering — measured on ten sites:
+
+| Site | static main text | rendered | verdict |
+|---|---|---|---|
+| `quote.eastmoney.com` grid | 1,401 · **0 rows** | 2,775 · **22 rows** | render wins |
+| `data.eastmoney.com` reports | 623 · 2 rows | 8,159 · **54 rows** | render wins |
+| `iwencai.com` | 5 | 1,152 | render wins |
+| `bilibili.com/video` | 515 | 5,146 | render wins |
+| `music.163.com` | **17,640** | 484 | **static wins** |
+| MDN | **40,023** | 28,320 | **static wins** |
+
+Two of ten render *worse* than their source — a hash-routed SPA and a hydrated
+docs page. A chain that swapped unconditionally would silently destroy working
+pages, so the rendered body has to beat the static one to be used.
+
+The trigger is deliberately blunt and cheap: main text under `1,500` characters,
+or a `<table>` skeleton holding `3` rows or fewer. That threshold sits in the
+empty gap between the clusters above (0–1,401 vs 17,640+). Rows are worth `50`
+characters each in the comparison, because a row of figures is short and
+valuable.
+
+Cost, honestly: a page that triggers costs **2–3 s** instead of **~0.2 s** and
+launches a browser process. Pages that do not trigger are unaffected. Nothing at
+all launches when Playwright is not installed — the chain degrades to plain
+HTTP. `403`/`429`/`503` also retry through the renderer, since challenge pages
+often resolve once JavaScript runs; pass `retryOnStatus: []` if you would rather
+not pay for that.
+
+The rendered DOM is cleaned before it is returned. That is not cosmetic:
+`douyin.com/hot` renders to 799,426 characters, of which **13,702** survive
+cleaning — and an uncleaned body pushes everything real out of the tool's
+conversion window, leaving the model a page title.
+
+A body that came from the browser carries `rendered: true`, so an unexpectedly
+slow fetch can be explained rather than guessed at.
 
 `web_fetch` converts HTML to Markdown (Turndown + GFM), strips non-visible
 elements, and refuses to convert past a nesting depth of 512 to bound
@@ -590,6 +642,7 @@ output. `colspan` is still never expanded into invented cells.
 |---|---|---|
 | `search` | `http-first` | `http-first` / `browser-first` / `browser` / `bing-html` / `so360-html` / `searxng` / `ddg-html` / `local-index` / `custom`; pass `false` to register none |
 | `fetch` | see below | partial overrides for the HTTP fetch provider |
+| `render` | on | browser render assist for shell pages; `false` disables; see [Render assist](#render-assist-when-the-page-is-a-shell) |
 | `disableFetch` | `false` | register no fetch provider |
 | `filter` | `loose` | result filtering options or a level (`'off' \| 'loose' \| 'balanced' \| 'strict'`); pass `false` to disable |
 | `index` | off | `{ dir, extract?, minChars? (200), onlySuccessful? (true) }` enables the local index and caching fetch; `extract` takes `mode: 'full' \| 'gentle' \| 'standard' \| 'aggressive'` |
@@ -627,7 +680,7 @@ createWebKit({ filter: { rules: { 'duplicate-title': 'keep' } } })
 createWebKit({ index: { dir: './idx', extract: { mode: 'full' } } })
 ```
 
-Fetch defaults: `maxResponseBytes` 5,000,000 · `maxBodyChars` 100,000 ·
+Fetch defaults: `maxResponseBytes` 5,000,000 · `maxBodyChars` 300,000 ·
 `timeoutMs` 30,000 · `maxRedirects` 5.
 ---
 
@@ -708,7 +761,18 @@ lets it correct itself on the next turn.
 
 - The public-address pinning is the SSRF defence. Do not remove it to "make
   localhost work" — point at a public URL instead.
+- **Render assist widens that surface and does not close it completely.** The
+  browser resolves hostnames itself, so the requested URL is validated before
+  launch and the URL the browser actually lands on is validated again after
+  navigation — a scripted redirect is a redirect, and it gets the same check.
+  What is *not* covered: requests the page's own scripts make (an `<img>`, a
+  `fetch()` in page context) reach whatever they address without passing
+  through this validation. Blocking those means intercepting every request in
+  the page, which would break the pages this exists to read. If you need
+  rendered content from a network where that matters, run the browser somewhere
+  that cannot reach your internal addresses.
 - Fetched content is **untrusted data**. Keep the trust notice in your prompt;
-  the toolkit marks it, it does not neutralize it.
+  the toolkit marks it, it does not neutralize it. A rendered page is more
+  untrusted, not less: rendering executes the page's own JavaScript.
 - `NO_PROXY` and proxy env vars are read per request, so a changed environment
   takes effect without a restart.

@@ -175,16 +175,41 @@ untrusted data; the notice is what stops it being read as instructions.
 
 ---
 
+## 8b. Render assist: it may launch a browser during a fetch
+
+By default `web_fetch` renders the page in a real browser **when the static body
+comes back as a shell**, and keeps the rendered DOM only when it beats what HTTP
+already returned. This is invisible to your tool wiring and visible in three
+other places:
+
+- **Latency**: a page that triggers costs 2–3 s instead of ~0.2 s. Pages that
+  do not trigger are unaffected.
+- **The flag**: `value.rendered === true` tells you a browser ran. If a fetch
+  unexpectedly takes seconds, this is why — surface it in your logs and you
+  will never have to guess.
+- **Resources**: a browser process (200–400 MB) exists for the duration. One
+  browser is reused across calls and closed by `dispose()`.
+
+Turn it off with `createWebKit({ render: false })` if your host cannot afford
+either. With the local index enabled, rendered bodies are what get indexed —
+the cache wraps the whole chain, so you never index an empty shell.
+
+It degrades silently and safely: with Playwright absent, nothing is ever
+launched and every fetch is plain HTTP.
+
+---
+
 ## 9. No Playwright? Everything still works
 
 `playwright` is an **optional** dependency and is imported lazily. Without it:
 
 - all HTTP backends (`bing-html`, `so360-html`, `ddg-html`, `searxng`) work,
 - the default `http-first` backend works — its browser half simply never runs,
+- render assist never launches and every fetch stays HTTP,
 - `browser` / `browser-first` fail with an actionable error telling you to
   `npm install playwright`.
 
-Install it only if you need Baidu or a JS-rendered page.
+Install it only if you need Baidu, a JS-rendered page, or render assist.
 
 ---
 

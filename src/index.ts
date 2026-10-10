@@ -113,6 +113,22 @@ export {
   BROWSER_PROVIDER_PREFIX,
   type BrowserSearchProviderOptions,
 } from './browser/provider.js'
+export {
+  BrowserFetchProvider,
+  BROWSER_FETCH_PROVIDER_ID,
+  DEFAULT_BROWSER_BODY_CHARS,
+  type BrowserFetchProviderOptions,
+} from './browser/fetch-provider.js'
+
+// --- fetch fallback --------------------------------------------------------
+export {
+  contentSignals,
+  withRenderFallback,
+  DEFAULT_ROW_WEIGHT,
+  type ContentSignals,
+  type RenderDecision,
+  type RenderFallbackOptions,
+} from './fetch/render-fallback.js'
 
 // --- content filtering -----------------------------------------------------
 export {
@@ -224,8 +240,10 @@ export { EXTERNAL_WEB_CONTENT_NOTICE } from './tools/trust.js'
 export { renderBody, exceedsConversionDepth, assertNever, OMISSION_MARKER } from './tools/html.js'
 
 import { WebRuntime } from './runtime.js'
-import type { WebSearchProvider } from './types.js'
+import type { WebFetchProvider, WebSearchProvider } from './types.js'
 import { DEFAULT_FETCH_LIMITS, HttpFetchProvider, type HttpFetchLimits } from './fetch/provider.js'
+import { BrowserFetchProvider, type BrowserFetchProviderOptions } from './browser/fetch-provider.js'
+import { withRenderFallback, type RenderFallbackOptions } from './fetch/render-fallback.js'
 import {
   BingHtmlSearchProvider,
   type BingHtmlSearchProviderOptions,
@@ -306,6 +324,16 @@ export interface WebKitOptions {
   readonly search?: SearchBackend | false
   /** Partial overrides for the HTTP fetch provider limits. */
   readonly fetch?: Partial<HttpFetchLimits>
+  /**
+   * Render pages in a real browser when the static body comes back as a shell.
+   * Defaults to on; pass `false` to register the HTTP provider alone.
+   *
+   * A browser is only launched when the static body looks unfilled, and the
+   * rendered DOM is kept only when it scores higher than what HTTP already
+   * returned — measured on nine sites, rendering *lost* on two of them.
+   * Nothing is launched at all unless Playwright is installed.
+   */
+  readonly render?: false | RenderAssistOptions
   /** Register no fetch provider. */
   readonly disableFetch?: boolean
   /**
@@ -327,6 +355,16 @@ export interface WebKitOptions {
   /** Cap on source characters converted and complete `web_fetch` output characters. */
   readonly fetchMaxOutputChars?: number
 }
+
+/**
+ * Browser render assist. See {@link WebKitOptions.render}.
+ *
+ * Overrides for the renderer and for the shell test that decides when to use
+ * it, in one object.
+ */
+export interface RenderAssistOptions extends
+  BrowserFetchProviderOptions,
+  Omit<RenderFallbackOptions, 'judge'> {}
 
 /** Options for the local index. See {@link WebKitOptions.index}. */
 export interface IndexOptions {
@@ -399,11 +437,26 @@ export function createWebKit(options: WebKitOptions = {}): WebKit {
 
   if (options.disableFetch !== true) {
     const http = new HttpFetchProvider({ ...DEFAULT_FETCH_LIMITS, ...options.fetch ?? {} })
+    let fetched: WebFetchProvider = http
+    let renderer: BrowserFetchProvider | undefined
+
+    if (options.render !== false) {
+      renderer = new BrowserFetchProvider(options.render ?? {})
+      // The renderer launches nothing until a shell turns up, and Playwright is
+      // optional, so an install without it degrades to plain HTTP.
+      fetched = withRenderFallback(http, renderer, options.render ?? {})
+    }
+
+    // Caching wraps the whole chain, so the index stores what the caller was
+    // actually shown — including a rendered body. Wrapping the other way round
+    // indexes the empty shell of every page the renderer had to rescue, and
+    // quietly retrieves nothing for it later.
     const indexOptions = options.index === undefined || options.index === false ? undefined : options.index
     const provider = index === undefined || indexOptions === undefined
-      ? http
-      : new CachingFetchProvider(http, index.documents, indexPassThrough(indexOptions))
+      ? fetched
+      : new CachingFetchProvider(fetched, index.documents, indexPassThrough(indexOptions))
     web.registerFetchProvider(provider)
+    if (renderer !== undefined) owned.push(renderer)
   }
 
   const tools = createWebTools({
