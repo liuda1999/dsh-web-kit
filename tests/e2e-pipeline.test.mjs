@@ -66,7 +66,11 @@ const PAGES = [
   { name: '表单页面', url: 'https://httpbin.org/forms/post', expect: /telephone/i, kind: 'html' },
   { name: 'JSON 接口 (text body)', url: 'https://httpbin.org/json', expect: /slideshow/i, kind: 'text' },
   { name: '表格 + 代码块混合文档', url: 'https://docs.python.org/3/library/string.html', expect: /string/i, kind: 'html' },
-  { name: '长内容组织首页', url: 'https://www.gnu.org/', expect: /free software/i, kind: 'html' },
+  // Not gnu.org. Both gnu.org pages here used to be, and they were the single
+  // largest source of intermittent failures: sampled repeatedly, they answered
+  // UND_ERR_CONNECT_TIMEOUT while every other site in this list stayed up. A
+  // test that depends on a host this flaky reports the host's health, not ours.
+  { name: '长内容命令索引', url: 'https://www.postgresql.org/docs/current/sql-commands.html', expect: /command/i, kind: 'html' },
   { name: '中文门户首页', url: 'https://www.qq.com/', expect: /腾讯/, kind: 'html' },
   { name: 'SQLite 语法表格文档', url: 'https://sqlite.org/lang.html', expect: /syntax/i, kind: 'html' },
   { name: '中文列表信息流', url: 'https://www.oschina.net/news', expect: /./, kind: 'html' },
@@ -74,12 +78,30 @@ const PAGES = [
   // call — running a markup-to-Markdown converter over it would invent syntax.
   { name: 'XML 文档', url: 'https://httpbin.org/xml', expect: /slideshow|Wake up/i, kind: 'text' },
   { name: '纯文本 RFC (超大)', url: 'https://www.rfc-editor.org/rfc/rfc2616.txt', expect: /Hypertext Transfer Protocol/i, kind: 'text' },
-  { name: '1MB 手册 (截断)', url: 'https://www.gnu.org/software/bash/manual/bash.html', expect: /Bourne/i, kind: 'html' },
+  // 213 KB of HTML against a 100,000-character cap, so truncation is exercised.
+  // The 20 MB nodejs.org/api/all.html does test the 5 MB byte cap as well, but
+  // two pages on one host means one outage removes both; not worth it here.
+  { name: '超大手册 (截断)', url: 'https://dev.mysql.com/doc/refman/8.0/en/', expect: /MySQL/i, kind: 'html' },
   { name: '极短纯文本', url: 'https://httpbin.org/robots.txt', expect: /./, kind: 'text' },
 ]
 
 /** Everything discovered while loading the pages, reused by the query tests. */
 const loaded = []
+
+/** Pages that could not be reached at all, with the reason. Printed, never hidden. */
+const unavailable = []
+
+/**
+ * How many third-party pages may be down before this file fails.
+ *
+ * Seventeen independent sites have to answer for this suite to pass, and their
+ * uptime is not something this package controls. Failing because one of them
+ * hiccuped produces a red build that says nothing about the code — the original
+ * reason this file was intermittent. But the tolerance is not open-ended: a real
+ * regression takes out *every* page at once, and one site being down does not.
+ * One is the widest gap that still tells those apart.
+ */
+const MAX_UNAVAILABLE = 1
 
 /**
  * Codes that mean "the network failed us", as opposed to "the page was wrong".
@@ -128,7 +150,7 @@ const RETRY_LOG = []
  * legitimate; swallowing a content failure would not be, which is why the
  * distinction above is the mechanism.
  */
-async function fetch_page(page, attempts = 3) {
+async function loadPage(page, attempts = 3) {
   let lastResult
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -136,24 +158,32 @@ async function fetch_page(page, attempts = 3) {
       const result = await kit.web.fetch({ url: page.url })
       if (!TRANSIENT_STATUS.has(result.statusCode)) {
         if (attempt > 1) RETRY_LOG.push(`${page.name}: ok on attempt ${attempt}`)
-        return result
+        return { result }
       }
       lastResult = result
       RETRY_LOG.push(`${page.name}: HTTP ${result.statusCode} on attempt ${attempt}, retrying`)
     } catch (error) {
       lastError = error
-      if (!isTransient(error) || attempt === attempts) throw error
+      // Not transport: a real claim about the code. Fail now, and loudly.
+      if (!isTransient(error)) throw error
       RETRY_LOG.push(`${page.name}: ${error.code ?? error.name} on attempt ${attempt}, retrying`)
     }
     if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 500 * attempt))
   }
-  if (lastResult !== undefined) return lastResult
-  throw lastError
+  // Retried and still nothing. That is the site's health, not our behaviour, so
+  // it is reported as unavailability and counted by the assertion below rather
+  // than failing the run — see MAX_UNAVAILABLE.
+  return { unavailable: lastError?.message ?? `HTTP ${lastResult?.statusCode}` }
 }
 
 test('fetch: every page type comes back with real content', { timeout: 180_000 }, async () => {
   for (const page of PAGES) {
-    const result = await fetch_page(page)
+    const outcome = await loadPage(page)
+    if (outcome.unavailable !== undefined) {
+      unavailable.push(`${page.name} — ${outcome.unavailable}`)
+      continue
+    }
+    const { result } = outcome
     assert.equal(result.statusCode, 200, `${page.name}: HTTP ${result.statusCode}`)
     assert.equal(result.body.kind, page.kind, `${page.name}: body kind`)
     assert.ok(result.body.content.length > 0, `${page.name}: empty body`)
@@ -178,9 +208,19 @@ test('fetch: every page type comes back with real content', { timeout: 180_000 }
   console.log(loaded
     .map(p => `  ${p.name.padEnd(22)} indexed=${String(p.indexedText.length).padStart(6)} probe="${p.probe}"`)
     .join('\n'))
-  // Retries are printed, never swallowed: if these ever become routine the sites
-  // themselves have become the flaky part and that belongs in a report, not a log.
+  // Unavailability and retries are printed, never swallowed: if these ever
+  // become routine the sites themselves have become the flaky part, and that
+  // belongs in a report rather than in a log nobody reads.
   if (RETRY_LOG.length > 0) console.log(`  [retries] ${RETRY_LOG.join('; ')}`)
+  if (unavailable.length > 0) console.log(`  [unavailable] ${unavailable.join('; ')}`)
+  // The tolerance itself is the assertion. Without it, "skip what is down" would
+  // quietly turn into "pass with nothing loaded" the day the network broke.
+  assert.ok(
+    unavailable.length <= MAX_UNAVAILABLE,
+    `${unavailable.length} of ${PAGES.length} pages unreachable (allowed ${MAX_UNAVAILABLE}): ${unavailable.join('; ')}`,
+  )
+  assert.ok(loaded.length >= PAGES.length - MAX_UNAVAILABLE,
+    `only ${loaded.length} of ${PAGES.length} pages were verified`)
 })
 
 /**
