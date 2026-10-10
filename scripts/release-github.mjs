@@ -24,64 +24,76 @@ const assetPath = `${ROOT}dsh-web-kit-${version}.tgz`
 
 const BODY = `## ${tag}
 
-This release is about **being a component inside somebody else's agent** — an
-OpenClaw-style host, a custom loop, an OpenAI-compatible gateway — rather than a
-standalone capability. Everything below was measured in a **separate host
-project that installed the tarball**, not inside this repository.
+**Pages that build their content in the browser are now readable.** Market
+grids, data consoles and ranking boards ship an empty shell whose numbers only
+exist after JavaScript runs. \`web_fetch\` now renders those in a real browser
+automatically — and keeps the rendered DOM **only when it beats what HTTP
+already returned**.
 
-### Embedding
+### Why it compares instead of just rendering
 
-- **[EMBEDDING.md](https://github.com/${OWNER}/${REPO}/blob/main/EMBEDDING.md)** —
-  the integration contract: one kit per process, \`dispose()\` on every exit
-  path, \`AbortSignal\` pass-through, OpenAI-compatible \`tools\` conversion,
-  where it writes on disk, the env vars that silently override provider
-  selection, ESM/CJS, and what to do when a scraper returns zero results.
-- **Three runnable hosts** in \`examples/\`: \`minimal-host.mjs\` (offline, fake
-  provider), \`openclaw-tool-host.mjs\` (real search + fetch + lifecycle +
-  index dir), \`openai-function-calling.mjs\` (schema conversion, and a real
-  tool-calling round trip when \`OPENAI_BASE_URL\` is set).
+Measured on ten sites, two render *worse* than their source:
 
-### Fixed
+| Site | static | rendered | |
+| --- | --- | --- | --- |
+| \`quote.eastmoney.com\` grid | 1,401 chars, **0 rows** | 2,775 chars, **22 rows** | render wins |
+| \`data.eastmoney.com\` reports | 623, 2 rows | 8,159, **54 rows** | render wins |
+| \`iwencai.com\` | 5 | 1,152 | render wins |
+| \`bilibili.com/video\` | 515 | 5,146 | render wins |
+| \`cninfo.com.cn\` | 503, 17 rows | 1,843, **52 rows** | render wins |
+| \`music.163.com\` | **17,640** | 484 | **static wins** |
+| MDN | **40,023** | 28,320 | **static wins** |
 
-- **Bad tool arguments are now refused legibly.** \`handler({ query: 'x' })\` —
-  a model using the singular field, the single most common mistake — threw
-  \`Cannot read properties of undefined (reading 'length')\`. Technically an
-  error, but one the model cannot act on, so it retries the same broken call.
-  Both tools now reject with \`code: 'WEB_INVALID_ARGS'\` and a message naming
-  the right field: *"the field is \\\`queries\\\` (plural), an array of strings"*.
-  Falsified by reverting the fix: 4 assertions go red.
-- **\`playwright\` is no longer a hard dependency.** It was listed in
-  \`dependencies\` *and* \`optionalDependencies\`, so every host that ran
-  \`npm install dsh-web-kit\` pulled it in. Now optional only — verified: a host
-  installed with \`--omit=optional\` gets 8 packages, no playwright, and the
-  default backend still returns 8 sources in 214 ms.
-- **\` @types/node\` moved into \`dependencies\`.** The shipped \`.d.ts\`
-  references \`node:dns\` and the \`NodeJS\` namespace, so a TypeScript host
-  without it got 20+ errors from inside \`node_modules\`. Verified clean:
-  \`tsc --strict --noEmit\` in a fresh host project now reports 0 errors.
+A chain that swapped unconditionally would silently destroy working pages. The
+trigger — main text under 1,500 characters, or a \`<table>\` skeleton holding 3
+rows or fewer — sits in the empty gap between those clusters. Rows count as 50
+characters each, because a row of figures is short and valuable.
 
-### Measured in a host project
+Cost, stated plainly: a page that triggers takes **2–3 s** instead of **~0.2 s**
+and starts a browser process. Pages that don't trigger are untouched. Nothing
+launches at all when Playwright is absent. \`403\`/\`429\`/\`503\` also retry
+through the renderer, since challenge pages often resolve once JavaScript runs
+(\`retryOnStatus: []\` turns that off).
 
-| | |
-| --- | --- |
-| install (\`--omit=optional\`) | 8 packages, no playwright |
-| default search, no playwright | 8 sources, 214 ms |
-| \`require('dsh-web-kit')\` (CJS host) | 121 exports (Node 22.22) |
-| TypeScript host | \`tsc --strict\` clean |
-| \`AbortSignal\` cancel | 10 ms, \`WEB_ABORTED\` |
-| two concurrent kits | 8 sources each |
-| index dir given explicitly | writes only there, never cwd |
-| index off | nothing created in cwd |
-| after \`dispose()\` | process exits, no hang |
+### Also in this release
+
+- **\`maxBodyChars\` is now 300,000** (was 100,000). The old cap cut the tail off
+  large documents, and the tail is where the prose lives — a previous release
+  note blamed client rendering for what was actually this cap. The output cap
+  \`maxOutputChars\` stays 200,000 and is independent, so widening what is
+  fetched does not have to widen what reaches the model.
+- **The rendered DOM is cleaned before it is returned.** \`douyin.com/hot\`
+  renders to 799,426 characters, of which 13,702 survive cleaning; uncleaned,
+  the swollen head pushes everything real out of the conversion window and the
+  model receives a page title.
+- **A rendered body is flagged** \`rendered: true\`, so a slow fetch can be
+  explained instead of guessed at.
+- With the local index on, rendered bodies are what get indexed.
+
+### Two defects this release introduced and caught
+
+- **The fallback chain was reversing SSRF decisions.** \`www.rust-lang.org\`
+  redirects cross-origin and the HTTP provider refuses that on purpose; a
+  browser follows redirects by definition, so falling back handed back the page
+  the policy had just refused. Policy failures (\`WEB_REDIRECT_BLOCKED\`,
+  \`WEB_BLOCKED_URL\`, \`WEB_INVALID_URL\`, \`WEB_INVALID_ARGS\`,
+  \`WEB_FETCH_TOO_LARGE\`) are no longer retried; capability failures
+  (timeouts, connection errors, content types) still are.
+- **The cache wrapped the wrong layer**, so the index stored the empty shell
+  while the caller received the rendered page, and retrieval found nothing for
+  a page it had just fetched.
+
+Both have falsifying tests: reverting either fix turns them red.
 
 ### Regression
 
-Full suite 5 runs, E2E + browser 4 runs, remaining 4 runs: **130 assertions,
-128 pass, 0 fail, 2 skipped** (DuckDuckGo unreachable and 360 rate-limited from
-this network — both environmental). One intermittent failure occurred in the
-very first run and did not reproduce in the 13 runs after it; it is recorded
-here rather than smoothed over. \`npm run check\`: 8 checks, 0 required
-failures.
+156 assertions, **154 pass, 0 fail, 2 skipped** (DuckDuckGo unreachable and 360
+rate-limited from this network — both environmental). Four consecutive full runs
+agree. \`npm run check\`: 8 checks, 0 required failures.
+
+Verified in a separate host project with \`--omit=optional\`: 8 packages, no
+playwright, search returns 8 sources, a shell page degrades to its static body
+without crashing or hanging, \`dispose()\` exits cleanly.
 
 \`\`\`sh
 npm install ./dsh-web-kit-${version}.tgz   # or unpack dsh-web-kit-${version}-src.zip
@@ -110,7 +122,7 @@ const release = await api(`/repos/${OWNER}/${REPO}/releases`, {
   method: 'POST',
   body: JSON.stringify({
     tag_name: tag,
-    name: `${tag} — embedding guide, examples, validated tool arguments`,
+    name: `${tag} — browser render assist for shell pages, 300K body cap`,
     body: BODY,
     draft: false,
     prerelease: false,
