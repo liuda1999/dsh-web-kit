@@ -24,79 +24,72 @@ const assetPath = `${ROOT}dsh-web-kit-${version}.tgz`
 
 const BODY = `## ${tag}
 
-**Pages that build their content in the browser are now readable.** Market
-grids, data consoles and ranking boards ship an empty shell whose numbers only
-exist after JavaScript runs. \`web_fetch\` now renders those in a real browser
-automatically — and keeps the rendered DOM **only when it beats what HTTP
-already returned**.
+Documentation and wording fixes from a post-release audit of v0.7.0. One error
+message changes; nothing else behaves differently.
 
-### Why it compares instead of just rendering
+### The DNS-pinning guarantee now says what it covers
 
-Measured on ten sites, two render *worse* than their source:
+The README claimed hostnames are "pinned into the connection so DNS cannot
+change between check and connect". That is true of the HTTP provider — and it
+was printed one section away from the newly added render assist, which
+**cannot** offer it. A browser resolves names itself and follows redirects
+itself, so a name that passed the check can be answered differently by the time
+the browser dials. A strong guarantee printed next to a path that lacks it is
+worse than no guarantee at all.
 
-| Site | static | rendered | |
-| --- | --- | --- | --- |
-| \`quote.eastmoney.com\` grid | 1,401 chars, **0 rows** | 2,775 chars, **22 rows** | render wins |
-| \`data.eastmoney.com\` reports | 623, 2 rows | 8,159, **54 rows** | render wins |
-| \`iwencai.com\` | 5 | 1,152 | render wins |
-| \`bilibili.com/video\` | 515 | 5,146 | render wins |
-| \`cninfo.com.cn\` | 503, 17 rows | 1,843, **52 rows** | render wins |
-| \`music.163.com\` | **17,640** | 484 | **static wins** |
-| MDN | **40,023** | 28,320 | **static wins** |
+The claim is now scoped to the HTTP provider, and both the render-assist section
+and Security notes list the three gaps that cannot be closed from inside the
+page:
 
-A chain that swapped unconditionally would silently destroy working pages. The
-trigger — main text under 1,500 characters, or a \`<table>\` skeleton holding 3
-rows or fewer — sits in the empty gap between those clusters. Rows count as 50
-characters each, because a row of figures is short and valuable.
+1. **DNS rebinding between check and connect** — the browser resolves the name
+   again when it dials, and intermediate redirects are followed before the
+   landing URL can be judged.
+2. **Requests the page's own scripts make** — an \`<img>\` or a \`fetch()\` in
+   page context reaches whatever it addresses.
+3. **Redirect chains are observable only at their end** — one that touches a
+   private address and returns to a public one is invisible from here.
 
-Cost, stated plainly: a page that triggers takes **2–3 s** instead of **~0.2 s**
-and starts a browser process. Pages that don't trigger are untouched. Nothing
-launches at all when Playwright is absent. \`403\`/\`429\`/\`503\` also retry
-through the renderer, since challenge pages often resolve once JavaScript runs
-(\`retryOnStatus: []\` turns that off).
+Policy refusals were already never retried through the browser; that is now
+stated as well. The advice is unchanged and now explicit: if the host can reach
+an internal network, run the browser somewhere that cannot.
 
-### Also in this release
+### Fixed
 
-- **\`maxBodyChars\` is now 300,000** (was 100,000). The old cap cut the tail off
-  large documents, and the tail is where the prose lives — a previous release
-  note blamed client rendering for what was actually this cap. The output cap
-  \`maxOutputChars\` stays 200,000 and is independent, so widening what is
-  fetched does not have to widen what reaches the model.
-- **The rendered DOM is cleaned before it is returned.** \`douyin.com/hot\`
-  renders to 799,426 characters, of which 13,702 survive cleaning; uncleaned,
-  the swollen head pushes everything real out of the conversion window and the
-  model receives a page title.
-- **A rendered body is flagged** \`rendered: true\`, so a slow fetch can be
-  explained instead of guessed at.
-- With the local index on, rendered bodies are what get indexed.
+- **A missing \`playwright\` was reported in the wrong voice.** Fetch-side
+  failures read *"browser **search** requires the optional dependency..."*,
+  because the pool is shared with search and the wording was not. The fetch path
+  now reads *"browser rendering of a fetched page requires..."* — verified in a
+  host project without Playwright.
+- **\`value\` is \`undefined\` when \`isError\` is \`true\`**, and the
+  embedding guide did not say so. \`result.value.statusCode\` on a failed call
+  throws \`Cannot read properties of undefined\`: the call fails *and* the
+  failure surfaces as a TypeError in the host's own code. Both the audit and any
+  host reading the field the obvious way hit this; it is now written into the
+  field list.
 
-### Two defects this release introduced and caught
+### Measured, recorded, deliberately not changed
 
-- **The fallback chain was reversing SSRF decisions.** \`www.rust-lang.org\`
-  redirects cross-origin and the HTTP provider refuses that on purpose; a
-  browser follows redirects by definition, so falling back handed back the page
-  the policy had just refused. Policy failures (\`WEB_REDIRECT_BLOCKED\`,
-  \`WEB_BLOCKED_URL\`, \`WEB_INVALID_URL\`, \`WEB_INVALID_ARGS\`,
-  \`WEB_FETCH_TOO_LARGE\`) are no longer retried; capability failures
-  (timeouts, connection errors, content types) still are.
-- **The cache wrapped the wrong layer**, so the index stored the empty shell
-  while the caller received the rendered page, and retrieval found nothing for
-  a page it had just fetched.
+The shell test scores the static body with \`extract(rawHTML)\` and the rendered
+body with \`extract(cleanedHTML)\`, because the renderer cleans by default. On
+\`quote.eastmoney.com\` that is **1,401 vs 705 — a 50% gap**, so the rendered
+side is systematically under-scored.
 
-Both have falsifying tests: reverting either fix turns them red.
+The bias is conservative: it favours keeping the static body, so it can never
+adopt a *worse* rendered result — only decline one that would have helped.
+Across four sites the shell verdict did **not** change once (NetEase, cninfo and
+MDN show 0% divergence). Unifying the two would lower static scores and raise
+browser launch rates for an unproven benefit, so the bias is documented in
+E2E-REPORT.md rather than "fixed".
 
-### Regression
+### Tests
 
-156 assertions, **154 pass, 0 fail, 2 skipped** (DuckDuckGo unreachable and 360
-rate-limited from this network — both environmental). Four consecutive full runs
-agree. \`npm run check\`: 8 checks, 0 required failures.
-
-Verified in a separate host project with \`--omit=optional\`: 8 packages, no
-playwright, search returns 8 sources, a shell page degrades to its static body
-without crashing or hanging, \`dispose()\` exits cleanly.
+158 assertions, 156 pass, 0 fail, 2 skipped (DuckDuckGo unreachable, 360
+rate-limited from this network — both environmental). Two new assertions cover
+this release and both were falsified: removing the \`purpose\` hand-off turns one
+red, and reverting the message to the shared wording turns the other red.
 
 \`\`\`sh
-npm install ./dsh-web-kit-${version}.tgz   # or unpack dsh-web-kit-${version}-src.zip
+npm install ./dsh-web-kit-${version}.tgz
 npm run check                             # verify your own network before relying on it
 \`\`\`
 `
@@ -122,7 +115,7 @@ const release = await api(`/repos/${OWNER}/${REPO}/releases`, {
   method: 'POST',
   body: JSON.stringify({
     tag_name: tag,
-    name: `${tag} — browser render assist for shell pages, 300K body cap`,
+    name: `${tag} — scoped DNS-pinning claim, fetch-side error wording`,
     body: BODY,
     draft: false,
     prerelease: false,
